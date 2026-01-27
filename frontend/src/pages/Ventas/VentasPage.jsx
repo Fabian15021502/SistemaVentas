@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, ShoppingCart, Trash2, User, DollarSign, CreditCard, Receipt } from 'lucide-react';
@@ -16,9 +16,42 @@ const VentasPage = () => {
   const [clienteFiado, setClienteFiado] = useState({ nombre: '', telefono: '' });
   const [ventaCompletada, setVentaCompletada] = useState(null);
   const [detallesVenta, setDetallesVenta] = useState([]);
+  const [deudoresExistentes, setDeudoresExistentes] = useState([]);
+  const [mostrarSugerencias, setMostrarSugerencias] = useState(false);
 
   // Variable derivada en lugar de useEffect
   const mostrarFormCliente = metodoPago === 'fiado';
+
+  // Cargar deudores cuando se activa modo fiado
+  useEffect(() => {
+    const cargarDeudores = async () => {
+      if (metodoPago === 'fiado') {
+        try {
+          const deudoresService = (await import('../../services/deudoresService')).default;
+          const deudores = await deudoresService.obtenerDeudores();
+          setDeudoresExistentes(deudores);
+        } catch (error) {
+          console.error('Error al cargar deudores:', error);
+        }
+      }
+    };
+    cargarDeudores();
+  }, [metodoPago]);
+
+  // Filtrar deudores según lo que escribe el usuario
+  const deudoresFiltrados = deudoresExistentes.filter(d => 
+    clienteFiado.nombre.trim() &&
+    d.nombre.toLowerCase().includes(clienteFiado.nombre.toLowerCase())
+  ).slice(0, 5); // Máximo 5 sugerencias
+
+  const seleccionarDeudor = (deudor) => {
+    setClienteFiado({
+      nombre: deudor.nombre,
+      // CORRECCIÓN: Convertir teléfono a string
+      telefono: String(deudor.telefono || '')
+    });
+    setMostrarSugerencias(false);
+  };
 
   const agregarAlCarrito = (producto) => {
     const existe = carrito.find(
@@ -48,6 +81,11 @@ const VentasPage = () => {
   };
 
   const cambiarCantidad = (itemId, nuevaCantidad) => {
+    if (nuevaCantidad <= 0) {
+      eliminarDelCarrito(itemId);
+      return;
+    }
+    
     setCarrito(carrito.map(item =>
       item.id === itemId
         ? { 
@@ -82,7 +120,11 @@ const VentasPage = () => {
     }
 
     if (metodoPago === 'fiado') {
-      if (!clienteFiado.nombre.trim() || !clienteFiado.telefono.trim()) {
+      // CORRECCIÓN: Validar sin usar trim directamente
+      const nombreValido = clienteFiado.nombre && String(clienteFiado.nombre).trim() !== '';
+      const telefonoValido = clienteFiado.telefono && String(clienteFiado.telefono).trim() !== '';
+      
+      if (!nombreValido || !telefonoValido) {
         alert('Por favor ingresa el nombre y teléfono del cliente');
         return false;
       }
@@ -91,38 +133,107 @@ const VentasPage = () => {
     return true;
   };
 
-  const confirmarVenta = () => {
+  const confirmarVenta = async () => {
     if (!validarVenta()) return;
 
-    const total = calcularTotal();
-    
-    const venta = {
-      total,
-      metodoPago,
-      cliente: metodoPago === 'fiado' ? clienteFiado : null
-    };
+    try {
+      const total = calcularTotal();
+      
+      const venta = {
+        empleadoId: user?.uid || user?.email || 'system',
+        total,
+        metodoPago,
+        // CORRECCIÓN: Asegurar que sean strings
+        clienteNombre: metodoPago === 'fiado' ? String(clienteFiado.nombre).trim() : 'Cliente General',
+        clienteTelefono: metodoPago === 'fiado' ? String(clienteFiado.telefono).trim() : '',
+        items: carrito.map(item => ({
+          productoId: item.productoId,
+          productoNombre: item.productoNombre,
+          variacionId: item.variacionId || '',
+          variacion: item.variacionValor || '',
+          cantidad: item.cantidad,
+          precioUnitario: item.precioUnitario,
+          subtotal: item.subtotal
+        }))
+      };
 
-    const detalles = carrito.map(item => ({
-      productoId: item.productoId,
-      productoNombre: item.productoNombre,
-      variacionId: item.variacionId,
-      variacionValor: item.variacionValor,
-      cantidad: item.cantidad,
-      precioUnitario: item.precioUnitario,
-      subtotal: item.subtotal
-    }));
+      console.log('💰 Registrando venta:', venta);
 
-    // Registrar venta
-    const ventaRegistrada = ventasService.registrarVenta(venta, detalles, user.uid);
+      // Registrar venta
+      const ventaRegistrada = await ventasService.registrarVenta(venta);
 
-    // Mostrar ticket
-    setVentaCompletada(ventaRegistrada);
-    setDetallesVenta(detalles);
+      console.log('✅ Venta registrada:', ventaRegistrada);
 
-    // Limpiar carrito
-    setCarrito([]);
-    setMetodoPago('efectivo');
-    setClienteFiado({ nombre: '', telefono: '' });
+      // Si es venta fiada, crear/buscar deudor y registrar deuda
+      if (metodoPago === 'fiado') {
+        try {
+          console.log('💳 Procesando venta fiada...');
+          
+          // Importar deudoresService
+          const deudoresService = (await import('../../services/deudoresService')).default;
+          
+          // Buscar si ya existe el deudor por nombre o teléfono
+          let deudor = null;
+          const deudores = await deudoresService.obtenerDeudores();
+          
+          const nombreBusqueda = String(clienteFiado.nombre).toLowerCase().trim();
+          const telefonoBusqueda = String(clienteFiado.telefono).trim();
+          
+          deudor = deudores.find(d => 
+            d.nombre.toLowerCase() === nombreBusqueda ||
+            (d.telefono && String(d.telefono) === telefonoBusqueda)
+          );
+          
+          // Si no existe, crear nuevo deudor
+          if (!deudor) {
+            console.log('👤 Creando nuevo deudor...');
+            deudor = await deudoresService.crearDeudor({
+              nombre: String(clienteFiado.nombre).trim(),
+              telefono: String(clienteFiado.telefono).trim()
+            });
+            console.log('✅ Deudor creado:', deudor);
+          } else {
+            console.log('✅ Deudor encontrado:', deudor.nombre);
+          }
+          
+          // Registrar la deuda
+          console.log('💰 Registrando deuda...');
+          await deudoresService.crearDeuda({
+            deudorId: deudor.id,
+            ventaId: ventaRegistrada.id,
+            monto: total
+          });
+          console.log('✅ Deuda registrada');
+          
+        } catch (deudaError) {
+          console.error('⚠️ Error al procesar deuda:', deudaError);
+          // No bloqueamos la venta, solo informamos
+          alert('Venta registrada, pero hubo un error al registrar la deuda: ' + deudaError.message);
+        }
+      }
+
+      // Mostrar ticket
+      setVentaCompletada({
+        id: ventaRegistrada.id,
+        fechaHora: ventaRegistrada.fecha,
+        total: venta.total,
+        metodoPago: venta.metodoPago,
+        cliente: metodoPago === 'fiado' ? {
+          nombre: String(clienteFiado.nombre).trim(),
+          telefono: String(clienteFiado.telefono).trim()
+        } : null
+      });
+      
+      setDetallesVenta(carrito);
+
+      // Limpiar carrito
+      setCarrito([]);
+      setMetodoPago('efectivo');
+      setClienteFiado({ nombre: '', telefono: '' });
+    } catch (error) {
+      console.error('Error al confirmar venta:', error);
+      alert('Error al registrar la venta: ' + error.message);
+    }
   };
 
   return (
@@ -239,6 +350,7 @@ const VentasPage = () => {
                   <div className="space-y-2">
                     <button
                       onClick={() => setMetodoPago('efectivo')}
+                      type="button"
                       className={`w-full flex items-center gap-3 p-4 rounded-lg border-2 transition-all ${
                         metodoPago === 'efectivo'
                           ? 'border-green-500 bg-green-50'
@@ -257,6 +369,7 @@ const VentasPage = () => {
 
                     <button
                       onClick={() => setMetodoPago('tarjeta')}
+                      type="button"
                       className={`w-full flex items-center gap-3 p-4 rounded-lg border-2 transition-all ${
                         metodoPago === 'tarjeta'
                           ? 'border-blue-500 bg-blue-50'
@@ -275,6 +388,7 @@ const VentasPage = () => {
 
                     <button
                       onClick={() => setMetodoPago('fiado')}
+                      type="button"
                       className={`w-full flex items-center gap-3 p-4 rounded-lg border-2 transition-all ${
                         metodoPago === 'fiado'
                           ? 'border-orange-500 bg-orange-50'
@@ -301,18 +415,52 @@ const VentasPage = () => {
                       <h3 className="font-semibold text-orange-900">Datos del Cliente</h3>
                     </div>
                     <div className="space-y-3">
-                      <input
-                        type="text"
-                        value={clienteFiado.nombre}
-                        onChange={(e) => setClienteFiado({ ...clienteFiado, nombre: e.target.value })}
-                        placeholder="Nombre completo"
-                        className="w-full px-4 py-2 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                        required
-                      />
+                      {/* Campo Nombre con autocompletado */}
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={clienteFiado.nombre}
+                          onChange={(e) => {
+                            setClienteFiado({ ...clienteFiado, nombre: e.target.value });
+                            setMostrarSugerencias(true);
+                          }}
+                          onFocus={() => setMostrarSugerencias(true)}
+                          placeholder="Nombre completo"
+                          className="w-full px-4 py-2 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          required
+                        />
+                        
+                        {/* Sugerencias de autocompletado */}
+                        {mostrarSugerencias && deudoresFiltrados.length > 0 && (
+                          <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            {deudoresFiltrados.map((deudor) => (
+                              <button
+                                key={deudor.id}
+                                type="button"
+                                onClick={() => seleccionarDeudor(deudor)}
+                                className="w-full text-left px-4 py-2 hover:bg-orange-50 border-b border-gray-100 last:border-b-0"
+                              >
+                                <p className="font-medium text-gray-900">{deudor.nombre}</p>
+                                <p className="text-sm text-gray-600">{deudor.telefono}</p>
+                                {deudor.saldoPendiente > 0 && (
+                                  <p className="text-xs text-orange-600">
+                                    Saldo pendiente: ${deudor.saldoPendiente.toLocaleString()}
+                                  </p>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      
                       <input
                         type="tel"
                         value={clienteFiado.telefono}
-                        onChange={(e) => setClienteFiado({ ...clienteFiado, telefono: e.target.value })}
+                        onChange={(e) => {
+                          // Solo números
+                          const valor = e.target.value.replace(/\D/g, '');
+                          setClienteFiado({ ...clienteFiado, telefono: valor });
+                        }}
                         placeholder="Teléfono"
                         className="w-full px-4 py-2 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
                         required
@@ -324,6 +472,7 @@ const VentasPage = () => {
                 {/* Botón Confirmar */}
                 <button
                   onClick={confirmarVenta}
+                  type="button"
                   className="w-full py-4 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg font-semibold hover:from-green-700 hover:to-green-800 transition-all transform hover:scale-[1.02] shadow-lg"
                 >
                   Confirmar Venta
@@ -340,7 +489,10 @@ const VentasPage = () => {
           venta={ventaCompletada}
           detalles={detallesVenta}
           empleado={user?.email}
-          onCerrar={() => setVentaCompletada(null)}
+          onCerrar={() => {
+            setVentaCompletada(null);
+            setDetallesVenta([]);
+          }}
         />
       )}
     </div>

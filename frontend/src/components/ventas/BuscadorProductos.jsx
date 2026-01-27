@@ -1,23 +1,41 @@
-import { useState, useMemo } from 'react';
-import { Search } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, Loader2 } from 'lucide-react';
 import productosService from '../../services/productosService';
 
 const BuscadorProductos = ({ onAgregarProducto }) => {
   const [busqueda, setBusqueda] = useState('');
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
+  const [productos, setProductos] = useState([]);
+  const [categorias, setCategorias] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // Cargar datos una sola vez
-  const productos = useMemo(() => productosService.getProductos(), []);
-  const categorias = useMemo(() => productosService.getCategorias(), []);
+  // Cargar datos al montar el componente
+  useEffect(() => {
+    const cargarDatos = async () => {
+      try {
+        setLoading(true);
+        const [productosData, categoriasData] = await Promise.all([
+          productosService.obtenerProductos(),
+          productosService.obtenerCategorias()
+        ]);
+        setProductos(productosData);
+        setCategorias(categoriasData);
+      } catch (error) {
+        console.error('Error al cargar productos:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    cargarDatos();
+  }, []);
 
   // Filtrar productos basado en la búsqueda
-  const productosFiltrados = useMemo(() => {
-    if (!busqueda.trim()) return [];
-    
-    return productos.filter(p =>
-      p.nombre.toLowerCase().includes(busqueda.toLowerCase())
-    );
-  }, [busqueda, productos]);
+  const productosFiltrados = busqueda.trim()
+    ? productos.filter(p =>
+        p.nombre.toLowerCase().includes(busqueda.toLowerCase())
+      )
+    : [];
 
   const handleSeleccionarProducto = (producto) => {
     setProductoSeleccionado(producto);
@@ -50,6 +68,15 @@ const BuscadorProductos = ({ onAgregarProducto }) => {
     setBusqueda('');
     setProductoSeleccionado(null);
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+        <span className="ml-2 text-gray-600">Cargando productos...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

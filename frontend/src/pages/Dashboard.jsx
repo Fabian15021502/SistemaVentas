@@ -1,6 +1,6 @@
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   LogOut, 
   ShoppingCart, 
@@ -10,7 +10,10 @@ import {
   AlertCircle,
   User,
   Calendar,
-  BarChart3
+  BarChart3,
+  Loader2,
+  RefreshCw,
+  Users
 } from 'lucide-react';
 import dashboardService from '../services/dashboardService';
 import VentasChart from '../components/dashboard/VentasChart';
@@ -22,19 +25,91 @@ const Dashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [metricas, setMetricas] = useState({
+    ventasHoy: { total: 0, cantidad: 0 },
+    productos: { total: 0 },
+    deuda: { total: 0, deudores: 0 }
+  });
+  const [ventasSemana, setVentasSemana] = useState([]);
+  const [ventasCategorias, setVentasCategorias] = useState([]);
+  const [topProductos, setTopProductos] = useState([]);
+  const [ventasPorEmpleado, setVentasPorEmpleado] = useState([]);
+
+  // Función para cargar datos
+  const cargarDatos = async () => {
+    setLoading(true);
+    try {
+      // Cargar estadísticas básicas primero (más rápido)
+      const stats = await dashboardService.obtenerEstadisticas();
+      
+      setMetricas({
+        ventasHoy: {
+          total: stats.totalDiario || 0,
+          cantidad: stats.ventasHoy || 0
+        },
+        productos: {
+          total: stats.totalProductos || 0
+        },
+        deuda: {
+          total: stats.deudaTotal || 0,
+          deudores: 0
+        }
+      });
+
+      setLoading(false);
+
+      // Cargar datos adicionales en paralelo (en background)
+      Promise.all([
+        dashboardService.obtenerVentasSemana(),
+        dashboardService.obtenerTopProductos(5),
+        dashboardService.obtenerVentasPorCategoria(),
+        dashboardService.obtenerVentasPorEmpleado(30) // AGREGADO
+      ]).then(([semana, productos, categorias, empleados]) => {
+        setVentasSemana(semana);
+        setTopProductos(productos);
+        setVentasCategorias(categorias);
+        setVentasPorEmpleado(empleados); // AGREGADO
+      }).catch(error => {
+        console.error('Error cargando datos adicionales:', error);
+      });
+
+    } catch (error) {
+      console.error('Error al cargar datos del dashboard:', error);
+      setLoading(false);
+    }
+  };
+
+  // Cargar datos al montar
+  useEffect(() => {
+    let mounted = true;
+    
+    const loadData = async () => {
+      if (mounted) {
+        await cargarDatos();
+      }
+    };
+    
+    loadData();
+    
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    dashboardService.limpiarCache();
+    await cargarDatos();
+    setRefreshing(false);
+  };
+
   const handleLogout = async () => {
     await logout();
   };
 
   const userName = user?.email?.split('@')[0] || 'Usuario';
-
-  // Cargar datos
-  const metricas = useMemo(() => dashboardService.getMetricasGenerales(), []);
-  const ventasSemana = useMemo(() => dashboardService.getVentasUltimaSemana(), []);
-  const ventasMes = useMemo(() => dashboardService.getVentasUltimoMes(), []);
-  const ventasCategorias = useMemo(() => dashboardService.getVentasPorCategoria(), []);
-  const topProductos = useMemo(() => dashboardService.getTopProductos(5), []);
-  const ventasEmpleados = useMemo(() => dashboardService.getVentasPorEmpleado(), []);
 
   const stats = [
     {
@@ -66,7 +141,7 @@ const Dashboard = () => {
     },
     {
       title: 'Promedio Diario',
-      value: `$${Math.round(ventasSemana.reduce((sum, v) => sum + v.total, 0) / 7).toLocaleString()}`,
+      value: `$${Math.round(ventasSemana.reduce((sum, v) => sum + v.total, 0) / (ventasSemana.length || 1)).toLocaleString()}`,
       subtitle: 'Última semana',
       icon: TrendingUp,
       color: 'bg-purple-500',
@@ -74,6 +149,17 @@ const Dashboard = () => {
       textColor: 'text-purple-600'
     }
   ];
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="animate-spin text-blue-500 mx-auto mb-4" size={48} />
+          <p className="text-gray-600">Cargando dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -89,6 +175,15 @@ const Dashboard = () => {
             </div>
             
             <div className="flex items-center gap-4">
+              <button
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Actualizar datos"
+              >
+                <RefreshCw className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} />
+              </button>
+
               <div className="text-right hidden sm:block">
                 <p className="text-sm font-medium text-gray-900">{user?.email}</p>
                 <p className="text-xs text-gray-500">
@@ -136,8 +231,8 @@ const Dashboard = () => {
           })}
         </div>
 
-        {/* Gráficos principales */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        {/* Gráficos principales - 3 columnas */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
           {/* Ventas de la última semana */}
           <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
             <div className="flex items-center justify-between mb-4">
@@ -147,7 +242,13 @@ const Dashboard = () => {
               </div>
               <BarChart3 className="w-5 h-5 text-gray-400" />
             </div>
-            <VentasChart data={ventasSemana} tipo="area" />
+            {ventasSemana.length > 0 ? (
+              <VentasChart data={ventasSemana} tipo="area" />
+            ) : (
+              <div className="h-[300px] flex items-center justify-center">
+                <p className="text-gray-400">Cargando datos...</p>
+              </div>
+            )}
           </div>
 
           {/* Ventas por categoría */}
@@ -162,21 +263,28 @@ const Dashboard = () => {
               <CategoriasChart data={ventasCategorias} />
             ) : (
               <div className="h-[300px] flex items-center justify-center">
-                <p className="text-gray-400">No hay datos disponibles</p>
+                <p className="text-gray-400">Cargando datos...</p>
               </div>
             )}
           </div>
-        </div>
 
-        {/* Ventas por mes */}
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">Ventas - Último Mes</h3>
-              <p className="text-sm text-gray-500">Comparativa semanal</p>
+          {/* NUEVO: Ventas por Empleado */}
+          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Ventas por Empleado</h3>
+                <p className="text-sm text-gray-500">Últimos 30 días</p>
+              </div>
+              <Users className="w-5 h-5 text-gray-400" />
             </div>
+            {ventasPorEmpleado.length > 0 ? (
+              <VentasPorEmpleado data={ventasPorEmpleado} />
+            ) : (
+              <div className="h-[300px] flex items-center justify-center">
+                <p className="text-gray-400">Cargando datos...</p>
+              </div>
+            )}
           </div>
-          <VentasChart data={ventasMes} tipo="line" />
         </div>
 
         {/* Grid inferior */}
@@ -222,29 +330,15 @@ const Dashboard = () => {
               </button>
               
               <button
-                onClick={() => navigate('/ventas')}
+                onClick={() => navigate('/reportes')}
                 className="w-full flex items-center gap-3 p-4 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors text-left"
               >
-                <TrendingUp className="w-5 h-5 text-orange-600" />
+                <BarChart3 className="w-5 h-5 text-orange-600" />
                 <span className="font-medium text-orange-900">Reportes</span>
               </button>
             </div>
           </div>
         </div>
-
-        {/* Ventas por empleado */}
-        {ventasEmpleados.length > 0 && (
-          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 mt-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Desempeño por Empleado</h3>
-                <p className="text-sm text-gray-500">Total de ventas</p>
-              </div>
-              <User className="w-5 h-5 text-gray-400" />
-            </div>
-            <VentasPorEmpleado data={ventasEmpleados} />
-          </div>
-        )}
       </main>
     </div>
   );

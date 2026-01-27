@@ -14,6 +14,12 @@ const HistorialDeuda = ({ deudor, historial, onCerrar }) => {
     }
   };
 
+  // Función helper para formatear números de forma segura
+  const formatNumber = (value) => {
+    const num = parseFloat(value);
+    return isNaN(num) ? '0' : num.toLocaleString();
+  };
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -41,18 +47,18 @@ const HistorialDeuda = ({ deudor, historial, onCerrar }) => {
           <div className="grid grid-cols-3 gap-4">
             <div className="bg-white/10 rounded-lg p-3">
               <p className="text-blue-200 text-xs mb-1">Deuda Total</p>
-              <p className="text-xl font-bold">${deudor.totalDeuda.toLocaleString()}</p>
+              <p className="text-xl font-bold">${formatNumber(deudor.totalDeuda)}</p>
             </div>
             <div className="bg-white/10 rounded-lg p-3">
               <p className="text-blue-200 text-xs mb-1">Pagado</p>
               <p className="text-xl font-bold text-green-300">
-                ${(deudor.totalDeuda - deudor.saldoPendiente).toLocaleString()}
+                ${formatNumber(deudor.totalDeuda - deudor.saldoPendiente)}
               </p>
             </div>
             <div className="bg-white/10 rounded-lg p-3">
               <p className="text-blue-200 text-xs mb-1">Pendiente</p>
               <p className="text-xl font-bold text-orange-300">
-                ${deudor.saldoPendiente.toLocaleString()}
+                ${formatNumber(deudor.saldoPendiente)}
               </p>
             </div>
           </div>
@@ -60,7 +66,7 @@ const HistorialDeuda = ({ deudor, historial, onCerrar }) => {
 
         {/* Contenido */}
         <div className="p-6">
-          {historial.length > 0 ? (
+          {historial && historial.length > 0 ? (
             <div className="space-y-6">
               {historial.map((deuda) => (
                 <div key={deuda.id} className="border border-gray-200 rounded-lg p-4">
@@ -70,19 +76,21 @@ const HistorialDeuda = ({ deudor, historial, onCerrar }) => {
                       <div className="flex items-center gap-2 mb-2">
                         <Calendar className="w-4 h-4 text-gray-400" />
                         <span className="text-sm text-gray-600">
-                          {new Date(deuda.fecha).toLocaleDateString('es-CO', {
+                          {deuda.fecha ? new Date(deuda.fecha).toLocaleDateString('es-CO', {
                             day: 'numeric',
                             month: 'long',
                             year: 'numeric'
-                          })}
+                          }) : 'Fecha no disponible'}
                         </span>
                       </div>
-                      <p className="text-xs text-gray-500">Venta #{deuda.ventaId}</p>
+                      {deuda.ventaId && (
+                        <p className="text-xs text-gray-500">Venta #{deuda.ventaId}</p>
+                      )}
                     </div>
                     <div className="text-right">
                       <p className="text-sm text-gray-600 mb-1">Monto Original</p>
                       <p className="text-xl font-bold text-gray-900">
-                        ${deuda.montoOriginal.toLocaleString()}
+                        ${formatNumber(deuda.monto)}
                       </p>
                     </div>
                   </div>
@@ -105,14 +113,14 @@ const HistorialDeuda = ({ deudor, historial, onCerrar }) => {
                               </div>
                               <div>
                                 <p className="text-sm font-medium text-gray-900">
-                                  ${abono.monto.toLocaleString()}
+                                  ${formatNumber(abono.monto)}
                                 </p>
                                 <p className="text-xs text-gray-600">
-                                  {new Date(abono.fecha).toLocaleDateString('es-CO')} •{' '}
-                                  {abono.metodoPago}
+                                  {abono.fecha ? new Date(abono.fecha).toLocaleDateString('es-CO') : 'N/A'} •{' '}
+                                  {abono.metodoPago || 'efectivo'}
                                 </p>
-                                {abono.nota && (
-                                  <p className="text-xs text-gray-500 mt-1">{abono.nota}</p>
+                                {abono.notas && (
+                                  <p className="text-xs text-gray-500 mt-1">{abono.notas}</p>
                                 )}
                               </div>
                             </div>
@@ -126,19 +134,19 @@ const HistorialDeuda = ({ deudor, historial, onCerrar }) => {
                   <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                     <span
                       className={`px-3 py-1 rounded-full text-xs font-medium ${
-                        deuda.estado === 'Pagada'
+                        deuda.estado === 'pagado' || deuda.saldo === 0
                           ? 'bg-green-100 text-green-700'
                           : 'bg-orange-100 text-orange-700'
                       }`}
                     >
-                      {deuda.estado}
+                      {deuda.estado === 'pagado' || deuda.saldo === 0 ? 'Pagada' : 'Pendiente'}
                     </span>
                     <div className="text-right">
                       <p className="text-xs text-gray-600">Saldo</p>
                       <p className={`text-lg font-bold ${
-                        deuda.saldo === 0 ? 'text-green-600' : 'text-orange-600'
+                        deuda.saldo === 0 || !deuda.saldo ? 'text-green-600' : 'text-orange-600'
                       }`}>
-                        ${deuda.saldo.toLocaleString()}
+                        ${formatNumber(deuda.saldo)}
                       </p>
                     </div>
                   </div>

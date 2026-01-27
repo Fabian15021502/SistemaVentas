@@ -1,204 +1,181 @@
-// Servicio para manejar ventas
-class VentasService {
-  constructor() {
-    this.ventasKey = 'ventas';
-    this.detalleVentasKey = 'detalle_ventas';
-    this.deudoresKey = 'deudores';
-    this.deudasKey = 'deudas';
-    this.initializeData();
-  }
+import apiRequest from '../config/googleSheets';
 
-  initializeData() {
-    if (!localStorage.getItem(this.ventasKey)) {
-      localStorage.setItem(this.ventasKey, JSON.stringify([]));
-    }
-    if (!localStorage.getItem(this.detalleVentasKey)) {
-      localStorage.setItem(this.detalleVentasKey, JSON.stringify([]));
-    }
-    if (!localStorage.getItem(this.deudoresKey)) {
-      localStorage.setItem(this.deudoresKey, JSON.stringify([]));
-    }
-    if (!localStorage.getItem(this.deudasKey)) {
-      localStorage.setItem(this.deudasKey, JSON.stringify([]));
-    }
-  }
+const ventasService = {
+  async registrarVenta(venta) {
+    try {
+      // Validaciones
+      if (!venta.items || venta.items.length === 0) {
+        throw new Error('Debe agregar al menos un producto a la venta');
+      }
+      if (!venta.total || venta.total <= 0) {
+        throw new Error('El total de la venta debe ser mayor a 0');
+      }
+      if (!venta.metodoPago) {
+        throw new Error('Debe seleccionar un método de pago');
+      }
 
-  // ========== VENTAS ==========
-
-  getVentas() {
-    const data = localStorage.getItem(this.ventasKey);
-    return data ? JSON.parse(data) : [];
-  }
-
-  getVenta(id) {
-    const ventas = this.getVentas();
-    return ventas.find(v => v.id === id);
-  }
-
-  registrarVenta(venta, detalles, empleadoId) {
-    const ventas = this.getVentas();
-    const detalleVentas = this.getDetalleVentas();
-    
-    const newId = Math.max(0, ...ventas.map(v => v.id)) + 1;
-    const fechaHora = new Date().toISOString();
-    
-    // Crear venta principal
-    const nuevaVenta = {
-      id: newId,
-      fechaHora,
-      empleadoId,
-      total: venta.total,
-      metodoPago: venta.metodoPago,
-      cliente: venta.cliente || null,
-      esCredito: venta.metodoPago === 'fiado'
-    };
-    
-    ventas.push(nuevaVenta);
-    localStorage.setItem(this.ventasKey, JSON.stringify(ventas));
-    
-    // Guardar detalles
-    detalles.forEach((detalle, index) => {
-      const detalleId = Date.now() + index;
-      detalleVentas.push({
-        id: detalleId,
-        ventaId: newId,
-        productoId: detalle.productoId,
-        productoNombre: detalle.productoNombre,
-        variacionId: detalle.variacionId || null,
-        variacionValor: detalle.variacionValor || null,
-        cantidad: detalle.cantidad,
-        precioUnitario: detalle.precioUnitario,
-        subtotal: detalle.subtotal
+      console.log('📝 Registrando venta:', {
+        total: venta.total,
+        metodoPago: venta.metodoPago,
+        itemsCount: venta.items.length
       });
-    });
-    
-    localStorage.setItem(this.detalleVentasKey, JSON.stringify(detalleVentas));
-    
-    // Si es fiado, crear deuda
-    if (venta.metodoPago === 'fiado' && venta.cliente) {
-      this.crearDeuda(venta.cliente, newId, venta.total);
+
+      // Preparar items como JSON string
+      const itemsJson = JSON.stringify(venta.items.map(item => ({
+        productoId: parseInt(item.productoId),
+        productoNombre: item.productoNombre,
+        variacionId: item.variacionId || '',
+        variacion: item.variacion || '',
+        cantidad: parseInt(item.cantidad),
+        precioUnitario: parseFloat(item.precioUnitario),
+        subtotal: parseFloat(item.subtotal)
+      })));
+
+      // CORRECCIÓN: Convertir teléfono a string antes de usar trim()
+      const response = await apiRequest('registrarVenta', {
+        empleadoId: venta.empleadoId || 'system',
+        total: parseFloat(venta.total),
+        metodoPago: venta.metodoPago,
+        clienteNombre: venta.clienteNombre?.trim() || 'Cliente General',
+        clienteTelefono: venta.clienteTelefono ? String(venta.clienteTelefono).trim() : '',
+        items: itemsJson
+      });
+
+      console.log('✅ Venta registrada exitosamente');
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error al registrar venta:', error);
+      throw error;
     }
-    
-    return nuevaVenta;
-  }
+  },
 
-  getDetalleVentas() {
-    const data = localStorage.getItem(this.detalleVentasKey);
-    return data ? JSON.parse(data) : [];
-  }
+  async obtenerVentas(filtros = {}) {
+    try {
+      const response = await apiRequest('getVentas', filtros);
+      return response.data || [];
+    } catch (error) {
+      console.error('Error al obtener ventas:', error);
+      throw new Error('No se pudieron cargar las ventas.');
+    }
+  },
 
-  getDetallesPorVenta(ventaId) {
-    const detalles = this.getDetalleVentas();
-    return detalles.filter(d => d.ventaId === ventaId);
-  }
+  async obtenerDetalleVenta(ventaId) {
+    try {
+      if (!ventaId) {
+        throw new Error('ID de venta no válido');
+      }
 
-  // ========== DEUDORES ==========
+      const response = await apiRequest('getVentaDetalle', {
+        id: ventaId
+      });
+      
+      return response.data || [];
+    } catch (error) {
+      console.error('Error al obtener detalle de venta:', error);
+      throw error;
+    }
+  },
 
-  getDeudores() {
-    const data = localStorage.getItem(this.deudoresKey);
-    return data ? JSON.parse(data) : [];
-  }
+  async obtenerVentaPorId(ventaId) {
+    try {
+      const ventas = await this.obtenerVentas();
+      const venta = ventas.find(v => v.id === parseInt(ventaId));
+      
+      if (!venta) {
+        throw new Error('Venta no encontrada');
+      }
 
-  buscarDeudor(telefono) {
-    const deudores = this.getDeudores();
-    return deudores.find(d => d.telefono === telefono);
-  }
+      const detalles = await this.obtenerDetalleVenta(ventaId);
+      
+      return {
+        ...venta,
+        items: detalles
+      };
+    } catch (error) {
+      console.error('Error al obtener venta completa:', error);
+      throw error;
+    }
+  },
 
-  crearDeudor(datos) {
-    const deudores = this.getDeudores();
-    const newId = Math.max(0, ...deudores.map(d => d.id)) + 1;
-    
-    const nuevoDeudor = {
-      id: newId,
-      nombre: datos.nombre,
-      telefono: datos.telefono,
-      totalDeuda: 0,
-      saldoPendiente: 0,
-      activo: true,
-      fechaCreacion: new Date().toISOString()
-    };
-    
-    deudores.push(nuevoDeudor);
-    localStorage.setItem(this.deudoresKey, JSON.stringify(deudores));
-    return nuevoDeudor;
-  }
+  async obtenerVentasPorRangoFechas(fechaInicio, fechaFin) {
+    try {
+      const ventas = await this.obtenerVentas();
+      
+      const inicio = new Date(fechaInicio);
+      inicio.setHours(0, 0, 0, 0);
+      
+      const fin = new Date(fechaFin);
+      fin.setHours(23, 59, 59, 999);
+      
+      return ventas.filter(venta => {
+        const fechaVenta = new Date(venta.fecha);
+        return fechaVenta >= inicio && fechaVenta <= fin;
+      });
+    } catch (error) {
+      console.error('Error al obtener ventas por rango:', error);
+      throw error;
+    }
+  },
 
-  actualizarDeudor(id, monto) {
-    const deudores = this.getDeudores();
-    const index = deudores.findIndex(d => d.id === id);
-    
-    if (index !== -1) {
-      deudores[index].totalDeuda += monto;
-      deudores[index].saldoPendiente += monto;
-      localStorage.setItem(this.deudoresKey, JSON.stringify(deudores));
+  async obtenerVentasDelDia(fecha = null) {
+    try {
+      const fechaConsulta = fecha ? new Date(fecha) : new Date();
+      fechaConsulta.setHours(0, 0, 0, 0);
+      
+      const ventas = await this.obtenerVentas();
+      
+      return ventas.filter(venta => {
+        const fechaVenta = new Date(venta.fecha);
+        fechaVenta.setHours(0, 0, 0, 0);
+        return fechaVenta.getTime() === fechaConsulta.getTime();
+      });
+    } catch (error) {
+      console.error('Error al obtener ventas del día:', error);
+      throw error;
+    }
+  },
+
+  async calcularTotalVentas(ventas) {
+    return ventas.reduce((total, venta) => total + parseFloat(venta.total), 0);
+  },
+
+  async calcularPromedioVentas(ventas) {
+    if (ventas.length === 0) return 0;
+    const total = await this.calcularTotalVentas(ventas);
+    return total / ventas.length;
+  },
+
+  async obtenerProductosMasVendidos(limite = 10) {
+    try {
+      const ventas = await this.obtenerVentas();
+      const productosVendidos = {};
+
+      for (const venta of ventas) {
+        const detalles = await this.obtenerDetalleVenta(venta.id);
+        
+        detalles.forEach(detalle => {
+          const key = detalle.productoId;
+          if (!productosVendidos[key]) {
+            productosVendidos[key] = {
+              productoId: detalle.productoId,
+              nombre: detalle.productoNombre,
+              cantidad: 0,
+              total: 0
+            };
+          }
+          productosVendidos[key].cantidad += detalle.cantidad;
+          productosVendidos[key].total += detalle.subtotal;
+        });
+      }
+
+      return Object.values(productosVendidos)
+        .sort((a, b) => b.cantidad - a.cantidad)
+        .slice(0, limite);
+    } catch (error) {
+      console.error('Error al obtener productos más vendidos:', error);
+      throw error;
     }
   }
+};
 
-  // ========== DEUDAS ==========
-
-  getDeudas() {
-    const data = localStorage.getItem(this.deudasKey);
-    return data ? JSON.parse(data) : [];
-  }
-
-  crearDeuda(clienteInfo, ventaId, monto) {
-    // Buscar o crear deudor
-    let deudor = this.buscarDeudor(clienteInfo.telefono);
-    
-    if (!deudor) {
-      deudor = this.crearDeudor(clienteInfo);
-    }
-    
-    // Crear deuda
-    const deudas = this.getDeudas();
-    const newId = Math.max(0, ...deudas.map(d => d.id)) + 1;
-    
-    const nuevaDeuda = {
-      id: newId,
-      deudorId: deudor.id,
-      ventaId,
-      fecha: new Date().toISOString(),
-      montoOriginal: monto,
-      saldo: monto,
-      estado: 'Pendiente'
-    };
-    
-    deudas.push(nuevaDeuda);
-    localStorage.setItem(this.deudasKey, JSON.stringify(deudas));
-    
-    // Actualizar totales del deudor
-    this.actualizarDeudor(deudor.id, monto);
-    
-    return nuevaDeuda;
-  }
-
-  // ========== ESTADÍSTICAS ==========
-
-  getVentasDeHoy() {
-    const ventas = this.getVentas();
-    const hoy = new Date().toISOString().split('T')[0];
-    
-    return ventas.filter(v => {
-      const fechaVenta = v.fechaHora.split('T')[0];
-      return fechaVenta === hoy;
-    });
-  }
-
-  getTotalVentasHoy() {
-    const ventasHoy = this.getVentasDeHoy();
-    return ventasHoy.reduce((total, venta) => total + venta.total, 0);
-  }
-
-  getVentasPorPeriodo(fechaInicio, fechaFin) {
-    const ventas = this.getVentas();
-    
-    return ventas.filter(v => {
-      const fechaVenta = new Date(v.fechaHora);
-      return fechaVenta >= fechaInicio && fechaVenta <= fechaFin;
-    });
-  }
-}
-
-// Exportar instancia única
-const ventasService = new VentasService();
 export default ventasService;

@@ -1,217 +1,250 @@
-import ventasService from './ventasService';
-import productosService from './productosService';
-import deudoresService from './deudoresService';
+// src/services/dashboardService.js
+import apiRequest from '../config/googleSheets';
 
-class DashboardService {
-  // ========== VENTAS ==========
+const dashboardService = {
+  // Cache simple para evitar llamadas repetidas
+  cache: {
+    data: null,
+    timestamp: null,
+    maxAge: 60000 // 1 minuto
+  },
 
-  getVentasDelDia() {
-    return ventasService.getVentasDeHoy();
-  }
+  async obtenerEstadisticas() {
+    try {
+      // Usar cache si está disponible
+      const now = Date.now();
+      if (this.cache.data && this.cache.timestamp && (now - this.cache.timestamp) < this.cache.maxAge) {
+        console.log('📦 Usando datos en cache');
+        return this.cache.data;
+      }
 
-  getTotalVentasDelDia() {
-    return ventasService.getTotalVentasHoy();
-  }
+      console.log('🔄 Obteniendo estadísticas frescas...');
+      const response = await apiRequest('getDashboardStats');
+      
+      // Obtener productos para contar total
+      let totalProductos = 0;
+      try {
+        const productosResponse = await apiRequest('getProductos');
+        totalProductos = (productosResponse.data || []).length;
+      } catch (error) {
+        console.warn('Error al contar productos:', error);
+      }
+      
+      const stats = {
+        ventasHoy: response.data?.ventasHoy || 0,
+        ventasMes: response.data?.ventasMes || 0,
+        totalDiario: response.data?.totalDiario || 0,
+        totalMensual: response.data?.totalMensual || 0,
+        deudaTotal: response.data?.deudaTotal || 0,
+        totalProductos: totalProductos
+      };
 
-  getVentasPorPeriodo(dias = 7) {
-    const fechaFin = new Date();
-    const fechaInicio = new Date();
-    fechaInicio.setDate(fechaInicio.getDate() - dias);
-    
-    return ventasService.getVentasPorPeriodo(fechaInicio, fechaFin);
-  }
+      // Guardar en cache
+      this.cache.data = stats;
+      this.cache.timestamp = now;
 
-  getVentasUltimaSemana() {
-    const ventas = this.getVentasPorPeriodo(7);
-    const ventasPorDia = {};
-
-    // Inicializar últimos 7 días
-    for (let i = 6; i >= 0; i--) {
-      const fecha = new Date();
-      fecha.setDate(fecha.getDate() - i);
-      const key = fecha.toISOString().split('T')[0];
-      ventasPorDia[key] = {
-        fecha: key,
-        dia: fecha.toLocaleDateString('es-CO', { weekday: 'short' }),
-        total: 0,
-        cantidad: 0
+      return stats;
+    } catch (error) {
+      console.error('Error al obtener estadísticas:', error);
+      return {
+        ventasHoy: 0,
+        ventasMes: 0,
+        totalDiario: 0,
+        totalMensual: 0,
+        deudaTotal: 0,
+        totalProductos: 0
       };
     }
+  },
 
-    // Sumar ventas por día
-    ventas.forEach(venta => {
-      const fecha = venta.fechaHora.split('T')[0];
-      if (ventasPorDia[fecha]) {
-        ventasPorDia[fecha].total += venta.total;
-        ventasPorDia[fecha].cantidad += 1;
-      }
-    });
+  async obtenerVentasSemana() {
+    try {
+      // Obtener ventas de los últimos 7 días
+      const hoy = new Date();
+      const hace7dias = new Date();
+      hace7dias.setDate(hace7dias.getDate() - 7);
 
-    return Object.values(ventasPorDia);
-  }
+      const response = await apiRequest('getVentas', {
+        fechaDesde: hace7dias.toISOString().split('T')[0],
+        fechaHasta: hoy.toISOString().split('T')[0]
+      });
 
-  getVentasUltimoMes() {
-    const ventas = this.getVentasPorPeriodo(30);
-    const ventasPorSemana = {
-      'Semana 1': { total: 0, cantidad: 0 },
-      'Semana 2': { total: 0, cantidad: 0 },
-      'Semana 3': { total: 0, cantidad: 0 },
-      'Semana 4': { total: 0, cantidad: 0 }
-    };
-
-    const ahora = new Date();
-    
-    ventas.forEach(venta => {
-      const fechaVenta = new Date(venta.fechaHora);
-      const diasDiferencia = Math.floor((ahora - fechaVenta) / (1000 * 60 * 60 * 24));
+      const ventas = response.data || [];
       
-      if (diasDiferencia <= 7) {
-        ventasPorSemana['Semana 4'].total += venta.total;
-        ventasPorSemana['Semana 4'].cantidad += 1;
-      } else if (diasDiferencia <= 14) {
-        ventasPorSemana['Semana 3'].total += venta.total;
-        ventasPorSemana['Semana 3'].cantidad += 1;
-      } else if (diasDiferencia <= 21) {
-        ventasPorSemana['Semana 2'].total += venta.total;
-        ventasPorSemana['Semana 2'].cantidad += 1;
-      } else {
-        ventasPorSemana['Semana 1'].total += venta.total;
-        ventasPorSemana['Semana 1'].cantidad += 1;
-      }
-    });
-
-    return Object.entries(ventasPorSemana).map(([nombre, datos]) => ({
-      nombre,
-      ...datos
-    }));
-  }
-
-  // ========== PRODUCTOS ==========
-
-  getTopProductos(limite = 5) {
-    const detalles = ventasService.getDetalleVentas();
-    const productosContador = {};
-
-    detalles.forEach(detalle => {
-      const key = detalle.productoId;
-      if (!productosContador[key]) {
-        productosContador[key] = {
-          id: key,
-          nombre: detalle.productoNombre,
-          cantidadVendida: 0,
-          totalVentas: 0
-        };
-      }
-      productosContador[key].cantidadVendida += detalle.cantidad;
-      productosContador[key].totalVentas += detalle.subtotal;
-    });
-
-    return Object.values(productosContador)
-      .sort((a, b) => b.totalVentas - a.totalVentas)
-      .slice(0, limite);
-  }
-
-  getVentasPorCategoria() {
-    const detalles = ventasService.getDetalleVentas();
-    const productos = productosService.getProductos();
-    const categorias = productosService.getCategorias();
-    const ventasPorCategoria = {};
-
-    // Inicializar categorías
-    categorias.forEach(cat => {
-      ventasPorCategoria[cat.id] = {
-        nombre: cat.nombre,
-        total: 0,
-        cantidad: 0
-      };
-    });
-
-    // Sumar ventas por categoría
-    detalles.forEach(detalle => {
-      const producto = productos.find(p => p.id === detalle.productoId);
-      if (producto && ventasPorCategoria[producto.categoriaId]) {
-        ventasPorCategoria[producto.categoriaId].total += detalle.subtotal;
-        ventasPorCategoria[producto.categoriaId].cantidad += detalle.cantidad;
-      }
-    });
-
-    return Object.values(ventasPorCategoria)
-      .filter(cat => cat.total > 0)
-      .sort((a, b) => b.total - a.total);
-  }
-
-  // ========== EMPLEADOS ==========
-
-  getVentasPorEmpleado() {
-    const ventas = ventasService.getVentas();
-    const ventasPorEmpleado = {};
-
-    ventas.forEach(venta => {
-      const empleadoId = venta.empleadoId;
-      if (!ventasPorEmpleado[empleadoId]) {
-        ventasPorEmpleado[empleadoId] = {
-          empleadoId,
+      // Agrupar por día
+      const ventasPorDia = {};
+      const dias = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+      
+      // Inicializar últimos 7 días
+      for (let i = 6; i >= 0; i--) {
+        const fecha = new Date();
+        fecha.setDate(fecha.getDate() - i);
+        const key = fecha.toISOString().split('T')[0];
+        
+        ventasPorDia[key] = {
+          dia: dias[fecha.getDay()],
           total: 0,
           cantidad: 0
         };
       }
-      ventasPorEmpleado[empleadoId].total += venta.total;
-      ventasPorEmpleado[empleadoId].cantidad += 1;
-    });
 
-    return Object.values(ventasPorEmpleado)
-      .sort((a, b) => b.total - a.total);
-  }
+      // Sumar ventas
+      ventas.forEach(venta => {
+        const fecha = new Date(venta.fecha);
+        const key = fecha.toISOString().split('T')[0];
+        
+        if (ventasPorDia[key]) {
+          ventasPorDia[key].total += parseFloat(venta.total) || 0;
+          ventasPorDia[key].cantidad++;
+        }
+      });
 
-  // ========== MÉTRICAS GENERALES ==========
+      return Object.values(ventasPorDia);
+    } catch (error) {
+      console.error('Error al obtener ventas de la semana:', error);
+      return [];
+    }
+  },
 
-  getMetricasGenerales() {
-    const ventasHoy = this.getVentasDelDia();
-    const totalHoy = this.getTotalVentasDelDia();
-    const deudaPendiente = deudoresService.getTotalDeudaPendiente();
-    const deudoresActivos = deudoresService.getDeudoresActivos().length;
-    const productos = productosService.getProductos().filter(p => p.activo);
+  async obtenerTopProductos(limite = 5) {
+    try {
+      const response = await apiRequest('getVentas');
+      const ventas = response.data || [];
+      
+      const productosMap = {};
 
-    return {
-      ventasHoy: {
-        total: totalHoy,
-        cantidad: ventasHoy.length
-      },
-      deuda: {
-        total: deudaPendiente,
-        deudores: deudoresActivos
-      },
-      productos: {
-        total: productos.length
+      // Procesar cada venta
+      for (const venta of ventas) {
+        try {
+          const detalleResponse = await apiRequest('getVentaDetalle', { 
+            id: venta.id 
+          });
+          
+          const detalles = detalleResponse.data || [];
+          
+          detalles.forEach(detalle => {
+            const key = detalle.productoId;
+            
+            if (!productosMap[key]) {
+              productosMap[key] = {
+                id: detalle.productoId,
+                nombre: detalle.productoNombre,
+                cantidadVendida: 0,
+                totalVentas: 0
+              };
+            }
+            
+            productosMap[key].cantidadVendida += parseInt(detalle.cantidad) || 0;
+            productosMap[key].totalVentas += parseFloat(detalle.subtotal) || 0;
+          });
+        } catch (error) {
+          console.warn('Error procesando venta', venta.id, error);
+        }
       }
-    };
+
+      return Object.values(productosMap)
+        .sort((a, b) => b.cantidadVendida - a.cantidadVendida)
+        .slice(0, limite);
+    } catch (error) {
+      console.error('Error al obtener top productos:', error);
+      return [];
+    }
+  },
+
+  async obtenerVentasPorCategoria() {
+    try {
+      const [ventasRes, productosRes, categoriasRes] = await Promise.all([
+        apiRequest('getVentas'),
+        apiRequest('getProductos'),
+        apiRequest('getCategorias')
+      ]);
+
+      const ventas = ventasRes.data || [];
+      const productos = productosRes.data || [];
+      const categorias = categoriasRes.data || [];
+
+      const categoriaMap = {};
+      
+      // Inicializar categorías
+      categorias.forEach(cat => {
+        categoriaMap[cat.id] = {
+          nombre: cat.nombre,
+          total: 0
+        };
+      });
+
+      // Procesar ventas
+      for (const venta of ventas) {
+        try {
+          const detalleRes = await apiRequest('getVentaDetalle', { id: venta.id });
+          const detalles = detalleRes.data || [];
+          
+          detalles.forEach(detalle => {
+            const producto = productos.find(p => p.id === detalle.productoId);
+            if (producto && categoriaMap[producto.categoriaId]) {
+              categoriaMap[producto.categoriaId].total += parseFloat(detalle.subtotal) || 0;
+            }
+          });
+        } catch {
+          console.warn('Error procesando venta', venta.id);
+        }
+      }
+
+      return Object.values(categoriaMap)
+        .filter(cat => cat.total > 0)
+        .sort((a, b) => b.total - a.total);
+    } catch (error) {
+      console.error('Error al obtener ventas por categoría:', error);
+      return [];
+    }
+  },
+
+  // FUNCIÓN AGREGADA: Obtener ventas por empleado
+  async obtenerVentasPorEmpleado(limite = 30) {
+    try {
+      const response = await apiRequest('getVentas');
+      const ventas = response.data || [];
+      
+      // Filtrar últimos N días
+      const fechaLimite = new Date();
+      fechaLimite.setDate(fechaLimite.getDate() - limite);
+      
+      const ventasRecientes = ventas.filter(venta => {
+        const fechaVenta = new Date(venta.fecha);
+        return fechaVenta >= fechaLimite;
+      });
+      
+      // Agrupar por empleado
+      const ventasPorEmpleado = {};
+      
+      ventasRecientes.forEach(venta => {
+        const empleadoId = venta.empleadoId || 'Sin asignar';
+        
+        if (!ventasPorEmpleado[empleadoId]) {
+          ventasPorEmpleado[empleadoId] = {
+            empleadoId: empleadoId === 'Sin asignar' ? 'Sin asignar' : empleadoId.split('@')[0],
+            email: empleadoId === 'Sin asignar' ? null : empleadoId,
+            total: 0,
+            cantidad: 0
+          };
+        }
+        
+        ventasPorEmpleado[empleadoId].total += parseFloat(venta.total) || 0;
+        ventasPorEmpleado[empleadoId].cantidad++;
+      });
+
+      return Object.values(ventasPorEmpleado)
+        .sort((a, b) => b.total - a.total);
+    } catch (error) {
+      console.error('Error al obtener ventas por empleado:', error);
+      return [];
+    }
+  },
+
+  limpiarCache() {
+    this.cache.data = null;
+    this.cache.timestamp = null;
   }
+};
 
-  // ========== COMPARATIVAS ==========
-
-  getComparativaConAyer() {
-    const hoy = new Date();
-    const ayer = new Date();
-    ayer.setDate(ayer.getDate() - 1);
-
-    const ventasHoy = ventasService.getVentasPorPeriodo(hoy, new Date());
-    const ventasAyer = ventasService.getVentasPorPeriodo(ayer, hoy);
-
-    const totalHoy = ventasHoy.reduce((sum, v) => sum + v.total, 0);
-    const totalAyer = ventasAyer.reduce((sum, v) => sum + v.total, 0);
-
-    const diferencia = totalHoy - totalAyer;
-    const porcentaje = totalAyer > 0 ? ((diferencia / totalAyer) * 100).toFixed(1) : 0;
-
-    return {
-      hoy: totalHoy,
-      ayer: totalAyer,
-      diferencia,
-      porcentaje: parseFloat(porcentaje)
-    };
-  }
-}
-
-// Exportar instancia única
-const dashboardService = new DashboardService();
 export default dashboardService;

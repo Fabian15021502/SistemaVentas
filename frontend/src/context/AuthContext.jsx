@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect } from 'react';
 import { 
   signInWithEmailAndPassword,
@@ -22,37 +23,49 @@ export const AuthProvider = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
+    console.log('🔄 Configurando listener de autenticación...');
+    
     // Escuchar cambios en el estado de autenticación
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      console.log('AuthContext - Estado de auth cambió:', firebaseUser?.email || 'No autenticado');
+      console.log('🔔 Estado de auth cambió:', firebaseUser?.email || 'No autenticado');
       
       if (firebaseUser) {
         setUser(firebaseUser);
         setIsAuthenticated(true);
+        console.log('✅ Usuario autenticado:', firebaseUser.email);
       } else {
         setUser(null);
         setIsAuthenticated(false);
+        console.log('❌ No hay usuario autenticado');
       }
+      
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      console.log('🧹 Limpiando listener de autenticación');
+      unsubscribe();
+    };
   }, []);
 
   const login = async (email, password) => {
     try {
-      console.log('AuthContext - Intentando login con:', email);
+      console.log('🔐 Iniciando login con:', email);
+      setLoading(true);
       
       const result = await signInWithEmailAndPassword(auth, email, password);
       
-      console.log('AuthContext - Login exitoso:', result.user.email);
+      console.log('✅ Login exitoso:', result.user.email);
       
+      // onAuthStateChanged se encargará de actualizar el estado
       // No necesitamos setear user/isAuthenticated manualmente
-      // onAuthStateChanged lo hará automáticamente
+      
+      // Pequeño delay para asegurar que el estado se actualice
+      await new Promise(resolve => setTimeout(resolve, 100));
       
       return { success: true, user: result.user };
     } catch (error) {
-      console.error('AuthContext - Error en login:', error.code, error.message);
+      console.error('❌ Error en login:', error.code, error.message);
       
       let errorMessage = 'Error al iniciar sesión';
       
@@ -80,17 +93,19 @@ export const AuthProvider = ({ children }) => {
       }
       
       return { success: false, error: errorMessage };
+    } finally {
+      setLoading(false);
     }
   };
 
   const logout = async () => {
     try {
-      console.log('AuthContext - Cerrando sesión');
+      console.log('🚪 Cerrando sesión...');
       await signOut(auth);
-      console.log('AuthContext - Sesión cerrada');
+      console.log('✅ Sesión cerrada');
       return { success: true };
     } catch (error) {
-      console.error('AuthContext - Error al cerrar sesión:', error);
+      console.error('❌ Error al cerrar sesión:', error);
       return { success: false, error: error.message };
     }
   };
@@ -103,9 +118,21 @@ export const AuthProvider = ({ children }) => {
     logout,
   };
 
+  // Mostrar children solo cuando no estamos cargando
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
+          <p className="text-gray-600">Cargando...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <AuthContext.Provider value={value}>
-      {!loading && children}
+      {children}
     </AuthContext.Provider>
   );
 };

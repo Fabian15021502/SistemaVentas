@@ -1,14 +1,16 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Lock, User, Store, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const Login = () => {
+  const navigate = useNavigate();
+  const { login } = useAuth();
+  
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  
-  const { login } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -16,18 +18,21 @@ const Login = () => {
     setError('');
     
     try {
+      console.log('🔐 Intentando login...');
       const result = await login(email, password);
       
-      // Verificar si el resultado existe y tiene la propiedad success
-      if (result && !result.success) {
+      if (result && result.success === false) {
+        // Si hay error explícito
         setError(result.error || 'Error al iniciar sesión');
+        setLoading(false);
+      } else {
+        // Login exitoso - navegar al dashboard
+        console.log('✅ Login exitoso, navegando a dashboard...');
+        navigate('/dashboard', { replace: true });
       }
-      // Si result.success es true o result es undefined, el login fue exitoso
-      // El AuthContext se encargará de actualizar el estado
     } catch (err) {
+      console.error('❌ Error en login:', err);
       setError('Error inesperado al iniciar sesión');
-      console.error('Error en login:', err);
-    } finally {
       setLoading(false);
     }
   };
@@ -79,6 +84,7 @@ const Login = () => {
                   placeholder="tu@email.com"
                   required
                   disabled={loading}
+                  autoComplete="email"
                 />
               </div>
             </div>
@@ -100,6 +106,7 @@ const Login = () => {
                   placeholder="••••••••"
                   required
                   disabled={loading}
+                  autoComplete="current-password"
                 />
               </div>
             </div>

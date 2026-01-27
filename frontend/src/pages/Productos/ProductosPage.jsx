@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '../../context/AuthContext';
-import { ArrowLeft, Plus, Search, Package, Grid, List } from 'lucide-react';
+import { ArrowLeft, Plus, Search, Package, Grid } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import productosService from '../../services/productosService';
 import CategoriaCard from '../../components/productos/CategoriaCard';
@@ -9,13 +8,13 @@ import CategoriasModal from './CategoriasModal';
 import ProductoModal from './ProductoModal';
 
 const ProductosPage = () => {
-  const { user } = useAuth();
   const navigate = useNavigate();
 
-  const [vista, setVista] = useState('productos'); // 'productos' | 'categorias'
+  const [vista, setVista] = useState('productos');
   const [categorias, setCategorias] = useState([]);
   const [productos, setProductos] = useState([]);
   const [busqueda, setBusqueda] = useState('');
+  const [loading, setLoading] = useState(true);
   
   const [modalCategoria, setModalCategoria] = useState(false);
   const [modalProducto, setModalProducto] = useState(false);
@@ -26,21 +25,37 @@ const ProductosPage = () => {
     cargarDatos();
   }, []);
 
-  const cargarDatos = () => {
-    setCategorias(productosService.getCategorias());
-    setProductos(productosService.getProductos());
+  const cargarDatos = async () => {
+    try {
+      setLoading(true);
+      const [categoriasData, productosData] = await Promise.all([
+        productosService.obtenerCategorias(),
+        productosService.obtenerProductos()
+      ]);
+      setCategorias(categoriasData);
+      setProductos(productosData);
+    } catch (error) {
+      console.error('Error al cargar datos:', error);
+      alert('Error al cargar datos: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // ========== CATEGORÍAS ==========
 
-  const handleGuardarCategoria = (datos) => {
-    if (categoriaEditando) {
-      productosService.actualizarCategoria(categoriaEditando.id, datos);
-    } else {
-      productosService.crearCategoria(datos);
+  const handleGuardarCategoria = async (datos) => {
+    try {
+      if (categoriaEditando) {
+        await productosService.actualizarCategoria(categoriaEditando.id, datos);
+      } else {
+        await productosService.crearCategoria(datos);
+      }
+      await cargarDatos();
+      setCategoriaEditando(null);
+    } catch (error) {
+      alert('Error: ' + error.message);
     }
-    cargarDatos();
-    setCategoriaEditando(null);
   };
 
   const handleEditarCategoria = (categoria) => {
@@ -48,11 +63,11 @@ const ProductosPage = () => {
     setModalCategoria(true);
   };
 
-  const handleEliminarCategoria = (id) => {
+  const handleEliminarCategoria = async (id) => {
     if (confirm('¿Estás seguro de eliminar esta categoría?')) {
       try {
-        productosService.eliminarCategoria(id);
-        cargarDatos();
+        await productosService.eliminarCategoria(id);
+        await cargarDatos();
       } catch (error) {
         alert(error.message);
       }
@@ -61,14 +76,18 @@ const ProductosPage = () => {
 
   // ========== PRODUCTOS ==========
 
-  const handleGuardarProducto = (datos) => {
-    if (productoEditando) {
-      productosService.actualizarProducto(productoEditando.id, datos);
-    } else {
-      productosService.crearProducto(datos);
+  const handleGuardarProducto = async (datos) => {
+    try {
+      if (productoEditando) {
+        await productosService.actualizarProducto(productoEditando.id, datos);
+      } else {
+        await productosService.crearProducto(datos);
+      }
+      await cargarDatos();
+      setProductoEditando(null);
+    } catch (error) {
+      alert('Error: ' + error.message);
     }
-    cargarDatos();
-    setProductoEditando(null);
   };
 
   const handleEditarProducto = (producto) => {
@@ -76,27 +95,37 @@ const ProductosPage = () => {
     setModalProducto(true);
   };
 
-  const handleEliminarProducto = (id) => {
+  const handleEliminarProducto = async (id) => {
     if (confirm('¿Estás seguro de eliminar este producto?')) {
-      productosService.eliminarProducto(id);
-      cargarDatos();
+      try {
+        await productosService.eliminarProducto(id);
+        await cargarDatos();
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
     }
   };
 
   // ========== FILTROS ==========
 
-  const productosFiltrados = productos.filter(p =>
-    p.nombre.toLowerCase().includes(busqueda.toLowerCase())
-  );
-
-  const getCategoriaNombre = (categoriaId) => {
-    const cat = categorias.find(c => c.id === categoriaId);
-    return cat ? cat.nombre : 'Sin categoría';
-  };
+  const productosFiltrados = busqueda.trim()
+    ? productos.filter(p => p.nombre.toLowerCase().includes(busqueda.toLowerCase()))
+    : productos;
 
   const getProductosCount = (categoriaId) => {
     return productos.filter(p => p.categoriaId === categoriaId).length;
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
+          <p className="text-gray-600">Cargando productos...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">

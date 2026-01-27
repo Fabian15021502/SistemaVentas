@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Search, Users, DollarSign, AlertCircle, TrendingUp } from 'lucide-react';
@@ -16,18 +16,39 @@ const DeudoresPage = () => {
   const [deudorParaAbono, setDeudorParaAbono] = useState(null);
   const [historialDeudor, setHistorialDeudor] = useState([]);
   const [mostrarAbonoModal, setMostrarAbonoModal] = useState(false);
-  const [filtro, setFiltro] = useState('todos'); // 'todos' | 'activos' | 'morosos'
+  const [filtro, setFiltro] = useState('todos');
+  const [deudores, setDeudores] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // Cargar deudores
-  const deudores = useMemo(() => deudoresService.getDeudores(), []);
+  useEffect(() => {
+    cargarDeudores();
+  }, []);
+
+  const cargarDeudores = async () => {
+    try {
+      setLoading(true);
+      const data = await deudoresService.obtenerDeudores();
+      setDeudores(data);
+    } catch (error) {
+      console.error('Error al cargar deudores:', error);
+      alert('Error al cargar deudores: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
   
   // Filtrar deudores
-  const deudoresFiltrados = useMemo(() => {
+  const deudoresFiltrados = (() => {
     let resultado = deudores;
 
     // Filtrar por búsqueda
     if (busqueda.trim()) {
-      resultado = deudoresService.buscarDeudores(busqueda);
+      const terminoLower = busqueda.toLowerCase().trim();
+      resultado = resultado.filter(d => 
+        d.nombre.toLowerCase().includes(terminoLower) ||
+        (d.telefono && String(d.telefono).includes(busqueda)) ||
+        String(d.id).includes(busqueda)
+      );
     }
 
     // Filtrar por tipo
@@ -36,9 +57,14 @@ const DeudoresPage = () => {
         resultado = resultado.filter(d => d.saldoPendiente > 0);
         break;
       case 'morosos': {
-        const morosos = deudoresService.getDeudoresMorosos(30);
-        const morososIds = morosos.map(m => m.id);
-        resultado = resultado.filter(d => morososIds.includes(d.id));
+        // Deudores con más de 30 días
+        resultado = resultado.filter(d => {
+          if (d.saldoPendiente === 0) return false;
+          const diasTranscurridos = Math.floor(
+            (new Date() - new Date(d.fechaCreacion)) / (1000 * 60 * 60 * 24)
+          );
+          return diasTranscurridos > 30;
+        });
         break;
       }
       default:
@@ -46,29 +72,29 @@ const DeudoresPage = () => {
     }
 
     return resultado;
-  }, [deudores, busqueda, filtro]);
+  })();
 
   // Estadísticas
-  const stats = useMemo(() => {
-    const totalDeuda = deudoresService.getTotalDeudaPendiente();
-    const deudoresActivos = deudores.filter(d => d.saldoPendiente > 0).length;
-    const morosos = deudoresService.getDeudoresMorosos(30).length;
-    
-    return {
-      totalDeuda,
-      deudoresActivos,
-      morosos,
-      totalDeudores: deudores.length
-    };
-  }, [deudores]);
+  const stats = {
+    totalDeuda: deudores.reduce((sum, d) => sum + d.saldoPendiente, 0),
+    deudoresActivos: deudores.filter(d => d.saldoPendiente > 0).length,
+    morosos: deudores.filter(d => {
+      if (d.saldoPendiente === 0) return false;
+      const dias = Math.floor((new Date() - new Date(d.fechaCreacion)) / (1000 * 60 * 60 * 24));
+      return dias > 30;
+    }).length,
+    totalDeudores: deudores.length
+  };
 
-  // Variable derivada para mostrar historial
-  const mostrarHistorial = deudorSeleccionado !== null;
-
-  const handleVerDetalle = (deudor) => {
-    setDeudorSeleccionado(deudor);
-    const historial = deudoresService.getHistorialCompleto(deudor.id);
-    setHistorialDeudor(historial);
+  const handleVerDetalle = async (deudor) => {
+    try {
+      setDeudorSeleccionado(deudor);
+      const historial = await deudoresService.obtenerDeudasPorDeudor(deudor.id);
+      setHistorialDeudor(historial);
+    } catch (error) {
+      console.error('Error al cargar historial:', error);
+      alert('Error al cargar historial');
+    }
   };
 
   const handleRegistrarAbono = (deudor) => {
@@ -79,28 +105,42 @@ const DeudoresPage = () => {
   const procesarAbono = async (datos) => {
     try {
       // Buscar la primera deuda pendiente del deudor
-      const deudasDeudor = deudoresService.getDeudasPorDeudor(datos.deudorId);
-      const deudaPendiente = deudasDeudor.find(d => d.estado === 'Pendiente');
+      const deudasDeudor = await deudoresService.obtenerDeudasPorDeudor(datos.deudorId);
+      const deudaPendiente = deudasDeudor.find(d => d.estado === 'pendiente');
 
       if (!deudaPendiente) {
         throw new Error('No se encontró una deuda pendiente');
       }
 
-      deudoresService.registrarAbono(
-        deudaPendiente.id,
-        datos.monto,
-        datos.metodoPago,
-        datos.nota,
-        user.uid
-      );
+      await deudoresService.registrarAbono({
+        deudaId: deudaPendiente.id,
+        monto: datos.monto,
+        metodoPago: datos.metodoPago,
+        notas: datos.nota || '',
+        registradoPor: user.uid || user.email
+      });
 
-      // Recargar página
-      window.location.reload();
+      // Recargar datos
+      await cargarDeudores();
+      setMostrarAbonoModal(false);
+      setDeudorParaAbono(null);
     } catch (error) {
+      console.error('Error al procesar abono:', error);
       alert(error.message);
       throw error;
     }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
+          <p className="text-gray-600">Cargando deudores...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -248,7 +288,7 @@ const DeudoresPage = () => {
       </main>
 
       {/* Modales */}
-      {mostrarHistorial && (
+      {deudorSeleccionado && (
         <HistorialDeuda
           deudor={deudorSeleccionado}
           historial={historialDeudor}

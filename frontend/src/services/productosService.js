@@ -1,164 +1,214 @@
-// Servicio para manejar productos y categorías
-// Por ahora usa localStorage, luego lo conectaremos a Google Sheets
+// src/services/productosService.js
+import apiRequest from '../config/googleSheets';
 
-class ProductosService {
-  constructor() {
-    this.categoriasKey = 'categorias';
-    this.productosKey = 'productos';
-    this.initializeData();
-  }
+const productosService = {
+  // ==================== CATEGORÍAS ====================
 
-  initializeData() {
-    // Inicializar con datos de ejemplo si no existen
-    if (!localStorage.getItem(this.categoriasKey)) {
-      const categoriasIniciales = [
-        { id: 1, nombre: 'Bebidas', descripcion: 'Bebidas frías y calientes', activo: true },
-        { id: 2, nombre: 'Snacks', descripcion: 'Snacks y mecatos', activo: true },
-        { id: 3, nombre: 'Dulces', descripcion: 'Dulces y chocolates', activo: true },
-        { id: 4, nombre: 'Licores', descripcion: 'Bebidas alcohólicas', activo: true },
-      ];
-      localStorage.setItem(this.categoriasKey, JSON.stringify(categoriasIniciales));
+  async obtenerCategorias() {
+    try {
+      console.log('📋 Obteniendo categorías...');
+      const response = await apiRequest('getCategorias');
+      return response.data || [];
+    } catch (error) {
+      console.error('Error al obtener categorías:', error);
+      throw new Error('No se pudieron cargar las categorías.');
+    }
+  },
+
+  async crearCategoria(categoria) {
+    try {
+      if (!categoria.nombre || categoria.nombre.trim() === '') {
+        throw new Error('El nombre de la categoría es obligatorio');
+      }
+
+      console.log('📁 Creando categoría:', categoria.nombre);
+
+      const response = await apiRequest('crearCategoria', {
+        nombre: categoria.nombre.trim(),
+        descripcion: categoria.descripcion?.trim() || ''
+      });
+
+      console.log('✅ Categoría creada');
+      return response.data;
+    } catch (error) {
+      console.error('Error al crear categoría:', error);
+      throw error;
+    }
+  },
+
+  async actualizarCategoria(id, datos) {
+    try {
+      if (!id) {
+        throw new Error('ID de categoría no válido');
+      }
+
+      const response = await apiRequest('actualizarCategoria', {
+        id,
+        nombre: datos.nombre?.trim(),
+        descripcion: datos.descripcion?.trim()
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error al actualizar categoría:', error);
+      throw error;
+    }
+  },
+
+  async eliminarCategoria(id) {
+    try {
+      if (!id) {
+        throw new Error('ID de categoría no válido');
+      }
+
+      await apiRequest('eliminarCategoria', { id });
+      return true;
+    } catch (error) {
+      console.error('Error al eliminar categoría:', error);
+      throw error;
+    }
+  },
+
+  // ==================== PRODUCTOS ====================
+
+  async obtenerProductos() {
+    try {
+      console.log('📦 Obteniendo productos...');
+      const response = await apiRequest('getProductos');
+      return response.data || [];
+    } catch (error) {
+      console.error('Error al obtener productos:', error);
+      throw new Error('No se pudieron cargar los productos.');
+    }
+  },
+
+  async obtenerProductoPorId(id) {
+    try {
+      const productos = await this.obtenerProductos();
+      const producto = productos.find(p => p.id === parseInt(id));
+
+      if (!producto) {
+        throw new Error('Producto no encontrado');
+      }
+
+      return producto;
+    } catch (error) {
+      console.error('Error al obtener producto:', error);
+      throw error;
+    }
+  },
+
+  async crearProducto(producto) {
+    try {
+      if (!producto.nombre || producto.nombre.trim() === '') {
+        throw new Error('El nombre del producto es obligatorio');
+      }
+      if (!producto.categoriaId) {
+        throw new Error('Debe seleccionar una categoría');
+      }
+      if (!producto.precioBase || producto.precioBase <= 0) {
+        throw new Error('El precio debe ser mayor a 0');
+      }
+
+      console.log('🛍️ Creando producto:', producto.nombre);
+
+      const response = await apiRequest('crearProducto', {
+        nombre: producto.nombre.trim(),
+        categoriaId: parseInt(producto.categoriaId),
+        precioBase: parseFloat(producto.precioBase),
+        variaciones: JSON.stringify(producto.variaciones || [])
+      });
+
+      console.log('✅ Producto creado');
+      return response.data;
+    } catch (error) {
+      console.error('Error al crear producto:', error);
+      throw error;
+    }
+  },
+
+  async actualizarProducto(id, datos) {
+    try {
+      if (!id) {
+        throw new Error('ID de producto no válido');
+      }
+
+      const params = { id: parseInt(id) };
+
+      if (datos.nombre) params.nombre = datos.nombre.trim();
+      if (datos.categoriaId) params.categoriaId = parseInt(datos.categoriaId);
+      if (datos.precioBase !== undefined) params.precioBase = parseFloat(datos.precioBase);
+      if (datos.variaciones) params.variaciones = JSON.stringify(datos.variaciones);
+
+      const response = await apiRequest('actualizarProducto', params);
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error al actualizar producto:', error);
+      throw error;
+    }
+  },
+
+  async eliminarProducto(id) {
+    try {
+      if (!id) {
+        throw new Error('ID de producto no válido');
+      }
+
+      await apiRequest('eliminarProducto', { id });
+      return true;
+    } catch (error) {
+      console.error('Error al eliminar producto:', error);
+      throw error;
+    }
+  },
+
+  async buscarProductos(termino) {
+    try {
+      if (!termino || termino.trim() === '') {
+        return await this.obtenerProductos();
+      }
+
+      const productos = await this.obtenerProductos();
+      const terminoLower = termino.toLowerCase().trim();
+
+      return productos.filter(p =>
+        p.nombre.toLowerCase().includes(terminoLower) ||
+        p.id.toString().includes(termino)
+      );
+    } catch (error) {
+      console.error('Error al buscar productos:', error);
+      throw error;
+    }
+  },
+
+  async obtenerProductosPorCategoria(categoriaId) {
+    try {
+      const productos = await this.obtenerProductos();
+      return productos.filter(p => p.categoriaId === parseInt(categoriaId));
+    } catch (error) {
+      console.error('Error al filtrar productos por categoría:', error);
+      throw error;
+    }
+  },
+
+  // ==================== VARIACIONES ====================
+
+  calcularPrecioConVariacion(producto, variacionId) {
+    if (!variacionId || !producto.variaciones) {
+      return producto.precioBase;
     }
 
-    if (!localStorage.getItem(this.productosKey)) {
-      const productosIniciales = [
-        {
-          id: 1,
-          nombre: 'Coca-Cola',
-          categoriaId: 1,
-          precioBase: 2500,
-          activo: true,
-          variaciones: [
-            { id: 1, tipo: 'Tamaño', valor: '350ml', precioAdicional: 0 },
-            { id: 2, tipo: 'Tamaño', valor: '1.5L', precioAdicional: 1500 },
-            { id: 3, tipo: 'Tamaño', valor: '3L', precioAdicional: 3000 },
-          ]
-        },
-        {
-          id: 2,
-          nombre: 'Doritos',
-          categoriaId: 2,
-          precioBase: 3000,
-          activo: true,
-          variaciones: [
-            { id: 4, tipo: 'Presentación', valor: 'Individual', precioAdicional: 0 },
-            { id: 5, tipo: 'Presentación', valor: 'Mega', precioAdicional: 1000 },
-          ]
-        },
-      ];
-      localStorage.setItem(this.productosKey, JSON.stringify(productosIniciales));
-    }
-  }
-
-  // ========== CATEGORÍAS ==========
-
-  getCategorias() {
-    const data = localStorage.getItem(this.categoriasKey);
-    return data ? JSON.parse(data) : [];
-  }
-
-  getCategoria(id) {
-    const categorias = this.getCategorias();
-    return categorias.find(c => c.id === id);
-  }
-
-  crearCategoria(categoria) {
-    const categorias = this.getCategorias();
-    const newId = Math.max(0, ...categorias.map(c => c.id)) + 1;
-    const nuevaCategoria = {
-      id: newId,
-      ...categoria,
-      activo: true
-    };
-    categorias.push(nuevaCategoria);
-    localStorage.setItem(this.categoriasKey, JSON.stringify(categorias));
-    return nuevaCategoria;
-  }
-
-  actualizarCategoria(id, datos) {
-    const categorias = this.getCategorias();
-    const index = categorias.findIndex(c => c.id === id);
-    if (index !== -1) {
-      categorias[index] = { ...categorias[index], ...datos };
-      localStorage.setItem(this.categoriasKey, JSON.stringify(categorias));
-      return categorias[index];
-    }
-    return null;
-  }
-
-  eliminarCategoria(id) {
-    const categorias = this.getCategorias();
-    const productos = this.getProductos();
-    
-    // Verificar si hay productos en esta categoría
-    const tieneProductos = productos.some(p => p.categoriaId === id);
-    if (tieneProductos) {
-      throw new Error('No se puede eliminar una categoría con productos asociados');
-    }
-
-    const filtered = categorias.filter(c => c.id !== id);
-    localStorage.setItem(this.categoriasKey, JSON.stringify(filtered));
-    return true;
-  }
-
-  // ========== PRODUCTOS ==========
-
-  getProductos() {
-    const data = localStorage.getItem(this.productosKey);
-    return data ? JSON.parse(data) : [];
-  }
-
-  getProducto(id) {
-    const productos = this.getProductos();
-    return productos.find(p => p.id === id);
-  }
-
-  getProductosPorCategoria(categoriaId) {
-    const productos = this.getProductos();
-    return productos.filter(p => p.categoriaId === categoriaId);
-  }
-
-  crearProducto(producto) {
-    const productos = this.getProductos();
-    const newId = Math.max(0, ...productos.map(p => p.id)) + 1;
-    const nuevoProducto = {
-      id: newId,
-      ...producto,
-      variaciones: producto.variaciones || [],
-      activo: true
-    };
-    productos.push(nuevoProducto);
-    localStorage.setItem(this.productosKey, JSON.stringify(productos));
-    return nuevoProducto;
-  }
-
-  actualizarProducto(id, datos) {
-    const productos = this.getProductos();
-    const index = productos.findIndex(p => p.id === id);
-    if (index !== -1) {
-      productos[index] = { ...productos[index], ...datos };
-      localStorage.setItem(this.productosKey, JSON.stringify(productos));
-      return productos[index];
-    }
-    return null;
-  }
-
-  eliminarProducto(id) {
-    const productos = this.getProductos();
-    const filtered = productos.filter(p => p.id !== id);
-    localStorage.setItem(this.productosKey, JSON.stringify(filtered));
-    return true;
-  }
-
-  buscarProductos(termino) {
-    const productos = this.getProductos();
-    const terminoLower = termino.toLowerCase();
-    return productos.filter(p => 
-      p.nombre.toLowerCase().includes(terminoLower)
+    const variacion = producto.variaciones.find(
+      v => v.id === parseInt(variacionId)
     );
-  }
-}
+    
+    if (!variacion) {
+      return producto.precioBase;
+    }
 
-// Exportar instancia única
-const productosService = new ProductosService();
+    return producto.precioBase + (variacion.precioAdicional || 0);
+  }
+};
+
 export default productosService;
