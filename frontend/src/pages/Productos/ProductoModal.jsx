@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { X, Plus, Trash2 } from 'lucide-react';
 
 const ProductoModal = ({ isOpen, onClose, onSave, producto = null, categorias = [] }) => {
+  // 🔧 CORRECCIÓN: Inicializar con los valores del producto si existe
   const [formData, setFormData] = useState({
-    nombre: '',
-    categoriaId: '',
-    precioBase: '',
-    variaciones: []
+    nombre: producto?.nombre || '',
+    categoriaId: producto?.categoriaId || (categorias.length > 0 ? categorias[0].id : ''),
+    precioBase: producto?.precioBase || '',
+    variaciones: producto?.variaciones || []
   });
 
   const [nuevaVariacion, setNuevaVariacion] = useState({
@@ -15,7 +16,8 @@ const ProductoModal = ({ isOpen, onClose, onSave, producto = null, categorias = 
     precioAdicional: 0
   });
 
-  useEffect(() => {
+  // 🔧 CORRECCIÓN: Resetear form cuando cambie el producto
+  const resetForm = () => {
     if (producto) {
       setFormData({
         nombre: producto.nombre,
@@ -31,7 +33,12 @@ const ProductoModal = ({ isOpen, onClose, onSave, producto = null, categorias = 
         variaciones: []
       });
     }
-  }, [producto, isOpen, categorias]);
+  };
+
+  // Resetear cuando se abre el modal
+  if (isOpen && !formData.nombre && producto) {
+    resetForm();
+  }
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -40,6 +47,17 @@ const ProductoModal = ({ isOpen, onClose, onSave, producto = null, categorias = 
       precioBase: parseFloat(formData.precioBase),
       categoriaId: parseInt(formData.categoriaId)
     });
+    handleClose();
+  };
+
+  const handleClose = () => {
+    setFormData({
+      nombre: '',
+      categoriaId: categorias.length > 0 ? categorias[0].id : '',
+      precioBase: '',
+      variaciones: []
+    });
+    setNuevaVariacion({ tipo: '', valor: '', precioAdicional: 0 });
     onClose();
   };
 
@@ -80,7 +98,7 @@ const ProductoModal = ({ isOpen, onClose, onSave, producto = null, categorias = 
             {producto ? 'Editar Producto' : 'Nuevo Producto'}
           </h2>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
             <X className="w-6 h-6" />
@@ -224,7 +242,7 @@ const ProductoModal = ({ isOpen, onClose, onSave, producto = null, categorias = 
           <div className="flex gap-3 mt-6">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
             >
               Cancelar

@@ -9,6 +9,7 @@ import ProductosPage from "./pages/Productos/ProductosPage";
 import VentasPage from "./pages/Ventas/VentasPage";
 import DeudoresPage from "./pages/Deudores/DeudoresPage";
 import ReportesPage from "./pages/Reportes/ReportesPage";
+import InventarioPage from "./pages/Inventario/InventarioPage"; // ✅ AGREGADO
 
 function App() {
   return (
@@ -60,6 +61,15 @@ function App() {
             element={
               <PrivateRoute>
                 <ReportesPage />
+              </PrivateRoute>
+            } 
+          />
+          
+          <Route 
+            path="/inventario" 
+            element={
+              <PrivateRoute>
+                <InventarioPage />
               </PrivateRoute>
             } 
           />

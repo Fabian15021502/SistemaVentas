@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Download, Calendar, FileText, TrendingUp, ArrowLeft } from 'lucide-react';
+import { Download, Calendar, FileText, TrendingUp, ArrowLeft, Users, Package } from 'lucide-react';
 import ventasService from '../../services/ventasService';
 import productosService from '../../services/productosService';
 import deudoresService from '../../services/deudoresService';
@@ -31,59 +31,157 @@ const ReportesPage = () => {
       switch (reporteActivo) {
         case 'ventas': {
           const ventas = await ventasService.obtenerVentas();
-          setDatosVentas(ventas);
+          
+          // Filtrar por rango de fechas
+          const ventasFiltradas = ventas.filter(venta => {
+            const fechaVenta = new Date(venta.fecha);
+            const inicio = new Date(fechaInicio);
+            const fin = new Date(fechaFin);
+            fin.setHours(23, 59, 59, 999);
+            
+            return fechaVenta >= inicio && fechaVenta <= fin;
+          });
+          
+          setDatosVentas(ventasFiltradas);
           break;
         }
         case 'productos': {
-          const productos = await productosService.obtenerProductos();
-          setDatosProductos(productos);
+          // Obtener productos y ventas para calcular estadísticas
+          const [productos, ventas] = await Promise.all([
+            productosService.obtenerProductos(),
+            ventasService.obtenerVentas()
+          ]);
+          
+          // Filtrar ventas por fecha
+          const ventasFiltradas = ventas.filter(venta => {
+            const fechaVenta = new Date(venta.fecha);
+            const inicio = new Date(fechaInicio);
+            const fin = new Date(fechaFin);
+            fin.setHours(23, 59, 59, 999);
+            
+            return fechaVenta >= inicio && fechaVenta <= fin;
+          });
+          
+          // Calcular estadísticas por producto
+          const productosConStats = await Promise.all(
+            productos.map(async (producto) => {
+              let cantidadVendida = 0;
+              let ingresoTotal = 0;
+              
+              for (const venta of ventasFiltradas) {
+                const detalles = await ventasService.obtenerDetalleVenta(venta.id);
+                const detallesProducto = detalles.filter(d => d.productoId === producto.id);
+                
+                detallesProducto.forEach(detalle => {
+                  cantidadVendida += detalle.cantidad;
+                  ingresoTotal += detalle.subtotal;
+                });
+              }
+              
+              return {
+                ...producto,
+                cantidadVendida,
+                ingresoTotal
+              };
+            })
+          );
+          
+          setDatosProductos(productosConStats);
           break;
         }
         case 'deudores': {
           const deudores = await deudoresService.obtenerDeudores();
-          setDatosDeudores(deudores);
+          
+          // Obtener deudas de cada deudor en el rango de fechas
+          const deudoresConFechas = await Promise.all(
+            deudores.map(async (deudor) => {
+              const deudas = await deudoresService.obtenerDeudasPorDeudor(deudor.id);
+              
+              // Filtrar deudas por fecha
+              const deudasEnRango = deudas.filter(deuda => {
+                const fechaDeuda = new Date(deuda.fecha);
+                const inicio = new Date(fechaInicio);
+                const fin = new Date(fechaFin);
+                fin.setHours(23, 59, 59, 999);
+                
+                return fechaDeuda >= inicio && fechaDeuda <= fin;
+              });
+              
+              // Calcular totales en el rango
+              const totalDeudasRango = deudasEnRango.reduce((sum, d) => sum + d.monto, 0);
+              const saldoPendienteRango = deudasEnRango.reduce((sum, d) => sum + d.saldo, 0);
+              
+              return {
+                ...deudor,
+                totalDeudasRango,
+                saldoPendienteRango,
+                deudasEnRango: deudasEnRango.length
+              };
+            })
+          );
+          
+          // Filtrar solo deudores con actividad en el rango
+          const deudoresActivos = deudoresConFechas.filter(d => d.deudasEnRango > 0);
+          
+          setDatosDeudores(deudoresActivos);
           break;
         }
       }
     } catch (error) {
       console.error('Error al generar reporte:', error);
+      alert('Error al generar reporte: ' + error.message);
     } finally {
       setCargando(false);
     }
   };
 
   const exportarAExcel = () => {
-    // Implementación básica para exportar
-    let datos = [];
     let nombreArchivo = '';
+    let csvContent = '';
     
     switch (reporteActivo) {
       case 'ventas':
-        datos = datosVentas;
+        if (datosVentas.length === 0) {
+          alert('No hay datos para exportar');
+          return;
+        }
         nombreArchivo = `reporte_ventas_${fechaInicio}_${fechaFin}.csv`;
+        csvContent = 'ID,Fecha,Hora,Cliente,Total,Método Pago,Empleado\n';
+        datosVentas.forEach(venta => {
+          const fecha = new Date(venta.fecha);
+          const fechaStr = fecha.toLocaleDateString('es-CO');
+          const horaStr = fecha.toLocaleTimeString('es-CO');
+          csvContent += `${venta.id},${fechaStr},${horaStr},"${venta.clienteNombre || 'Cliente General'}",${venta.total},${venta.metodoPago},${venta.empleadoId}\n`;
+        });
         break;
+        
       case 'productos':
-        datos = datosProductos;
-        nombreArchivo = 'reporte_productos.csv';
+        if (datosProductos.length === 0) {
+          alert('No hay datos para exportar');
+          return;
+        }
+        nombreArchivo = `reporte_productos_${fechaInicio}_${fechaFin}.csv`;
+        csvContent = 'ID,Nombre,Categoría,Precio Base,Unidades Vendidas,Ingresos Totales,Estado\n';
+        datosProductos.forEach(producto => {
+          csvContent += `${producto.id},"${producto.nombre}",${producto.categoriaId},${producto.precioBase},${producto.cantidadVendida},${producto.ingresoTotal},${producto.activo ? 'Activo' : 'Inactivo'}\n`;
+        });
         break;
+        
       case 'deudores':
-        datos = datosDeudores;
-        nombreArchivo = 'reporte_deudores.csv';
+        if (datosDeudores.length === 0) {
+          alert('No hay datos para exportar');
+          return;
+        }
+        nombreArchivo = `reporte_deudores_${fechaInicio}_${fechaFin}.csv`;
+        csvContent = 'ID,Nombre,Teléfono,Deudas en Periodo,Total Periodo,Saldo Pendiente Periodo,Deuda Total,Saldo Total\n';
+        datosDeudores.forEach(deudor => {
+          csvContent += `${deudor.id},"${deudor.nombre}",${deudor.telefono},${deudor.deudasEnRango},${deudor.totalDeudasRango},${deudor.saldoPendienteRango},${deudor.totalDeuda},${deudor.saldoPendiente}\n`;
+        });
         break;
     }
-    
-    if (datos.length === 0) {
-      alert('No hay datos para exportar');
-      return;
-    }
-    
-    // Convertir a CSV
-    const cabeceras = Object.keys(datos[0]).join(',');
-    const filas = datos.map(obj => Object.values(obj).join(','));
-    const csv = [cabeceras, ...filas].join('\n');
     
     // Crear y descargar archivo
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -94,8 +192,8 @@ const ReportesPage = () => {
 
   const tiposReporte = [
     { id: 'ventas', nombre: 'Reporte de Ventas', icon: TrendingUp, color: 'bg-blue-500' },
-    { id: 'productos', nombre: 'Reporte de Productos', icon: FileText, color: 'bg-green-500' },
-    { id: 'deudores', nombre: 'Reporte de Deudores', icon: Calendar, color: 'bg-orange-500' },
+    { id: 'productos', nombre: 'Reporte de Productos', icon: Package, color: 'bg-green-500' },
+    { id: 'deudores', nombre: 'Reporte de Deudores', icon: Users, color: 'bg-orange-500' },
   ];
 
   return (
@@ -152,45 +250,46 @@ const ReportesPage = () => {
           })}
         </div>
 
-        {/* Filtros */}
-        {reporteActivo === 'ventas' && (
-          <div className="bg-white rounded-xl shadow-sm p-6 mb-8 border border-gray-100">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Filtros de Fecha</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Fecha de inicio
-                </label>
-                <input
-                  type="date"
-                  value={fechaInicio}
-                  onChange={(e) => setFechaInicio(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Fecha de fin
-                </label>
-                <input
-                  type="date"
-                  value={fechaFin}
-                  onChange={(e) => setFechaFin(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-              <div className="flex items-end">
-                <button
-                  onClick={generarReporte}
-                  disabled={cargando}
-                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
-                >
-                  {cargando ? 'Generando...' : 'Generar Reporte'}
-                </button>
-              </div>
+        {/* Filtros de Fecha - AHORA PARA TODOS */}
+        <div className="bg-white rounded-xl shadow-sm p-6 mb-8 border border-gray-100">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            <Calendar className="w-5 h-5 inline mr-2" />
+            Filtros de Fecha
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Fecha de inicio
+              </label>
+              <input
+                type="date"
+                value={fechaInicio}
+                onChange={(e) => setFechaInicio(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Fecha de fin
+              </label>
+              <input
+                type="date"
+                value={fechaFin}
+                onChange={(e) => setFechaFin(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                onClick={generarReporte}
+                disabled={cargando}
+                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+              >
+                {cargando ? 'Generando...' : 'Generar Reporte'}
+              </button>
             </div>
           </div>
-        )}
+        </div>
 
         {/* Botón de exportación */}
         <div className="flex justify-end mb-8">
@@ -237,7 +336,7 @@ const ReportesPage = () => {
                       <tr key={venta.id}>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{venta.id}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {new Date(venta.fecha).toLocaleDateString()}
+                          {new Date(venta.fecha).toLocaleDateString('es-CO')}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           {venta.clienteNombre || 'Cliente General'}
@@ -260,8 +359,9 @@ const ReportesPage = () => {
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nombre</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Categoría</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Precio</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Unidades Vendidas</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ingresos</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
                     </tr>
                   </thead>
@@ -270,9 +370,14 @@ const ReportesPage = () => {
                       <tr key={producto.id}>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{producto.id}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{producto.nombre}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{producto.categoriaId}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           ${producto.precioBase.toLocaleString()}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {producto.cantidadVendida || 0}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          ${(producto.ingresoTotal || 0).toLocaleString()}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
                           <span className={`px-2 py-1 rounded-full text-xs ${
@@ -296,8 +401,9 @@ const ReportesPage = () => {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nombre</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Teléfono</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Deuda Total</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Saldo Pendiente</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Deudas Periodo</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Periodo</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Saldo Periodo</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -306,16 +412,17 @@ const ReportesPage = () => {
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{deudor.id}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{deudor.nombre}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{deudor.telefono}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{deudor.deudasEnRango}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          ${deudor.totalDeuda.toLocaleString()}
+                          ${deudor.totalDeudasRango.toLocaleString()}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
                           <span className={`px-2 py-1 rounded-full text-xs ${
-                            deudor.saldoPendiente > 0
+                            deudor.saldoPendienteRango > 0
                               ? 'bg-red-100 text-red-800'
                               : 'bg-green-100 text-green-800'
                           }`}>
-                            ${deudor.saldoPendiente.toLocaleString()}
+                            ${deudor.saldoPendienteRango.toLocaleString()}
                           </span>
                         </td>
                       </tr>
@@ -331,7 +438,8 @@ const ReportesPage = () => {
               ) && (
                 <div className="text-center py-12 text-gray-500">
                   <FileText className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                  <p>No hay datos para mostrar. Genera el reporte primero.</p>
+                  <p>No hay datos para mostrar en el periodo seleccionado.</p>
+                  <p className="text-sm mt-2">Genera el reporte para ver resultados.</p>
                 </div>
               )}
             </div>
@@ -352,17 +460,22 @@ const ReportesPage = () => {
             <h4 className="text-sm font-medium text-green-900 mb-2">Total Monetario</h4>
             <p className="text-2xl font-bold text-green-700">
               {reporteActivo === 'ventas' && `$${datosVentas.reduce((sum, v) => sum + (v.total || 0), 0).toLocaleString()}`}
-              {reporteActivo === 'productos' && `${datosProductos.length} productos`}
-              {reporteActivo === 'deudores' && `$${datosDeudores.reduce((sum, d) => sum + (d.saldoPendiente || 0), 0).toLocaleString()}`}
+              {reporteActivo === 'productos' && `$${datosProductos.reduce((sum, p) => sum + (p.ingresoTotal || 0), 0).toLocaleString()}`}
+              {reporteActivo === 'deudores' && `$${datosDeudores.reduce((sum, d) => sum + (d.saldoPendienteRango || 0), 0).toLocaleString()}`}
             </p>
           </div>
           <div className="bg-purple-50 rounded-xl p-6 border border-purple-100">
             <h4 className="text-sm font-medium text-purple-900 mb-2">Periodo</h4>
-            <p className="text-2xl font-bold text-purple-700">
-              {reporteActivo === 'ventas' 
-                ? `${fechaInicio} a ${fechaFin}`
-                : 'Todos los registros'
-              }
+            <p className="text-lg font-bold text-purple-700">
+              {fechaInicio && fechaFin ? (
+                <>
+                  {new Date(fechaInicio).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
+                  {' - '}
+                  {new Date(fechaFin).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </>
+              ) : (
+                'Seleccionar fechas'
+              )}
             </p>
           </div>
         </div>

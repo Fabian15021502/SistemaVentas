@@ -1,13 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { X } from 'lucide-react';
 
 const CategoriasModal = ({ isOpen, onClose, onSave, categoria = null }) => {
+  // 🔧 CORRECCIÓN: Inicializar con los valores del producto si existe
+  // Esto evita el warning de setState en useEffect
   const [formData, setFormData] = useState({
-    nombre: '',
-    descripcion: ''
+    nombre: categoria?.nombre || '',
+    descripcion: categoria?.descripcion || ''
   });
 
-  useEffect(() => {
+  // 🔧 CORRECCIÓN: Resetear form cuando cambia la categoría o se abre/cierra
+  // Usar un key en el formulario en lugar de useEffect
+  const resetForm = () => {
     if (categoria) {
       setFormData({
         nombre: categoria.nombre,
@@ -19,11 +23,21 @@ const CategoriasModal = ({ isOpen, onClose, onSave, categoria = null }) => {
         descripcion: ''
       });
     }
-  }, [categoria, isOpen]);
+  };
+
+  // Resetear cuando se abre el modal
+  if (isOpen && !formData.nombre && categoria) {
+    resetForm();
+  }
 
   const handleSubmit = (e) => {
     e.preventDefault();
     onSave(formData);
+    onClose();
+  };
+
+  const handleClose = () => {
+    setFormData({ nombre: '', descripcion: '' });
     onClose();
   };
 
@@ -38,7 +52,7 @@ const CategoriasModal = ({ isOpen, onClose, onSave, categoria = null }) => {
             {categoria ? 'Editar Categoría' : 'Nueva Categoría'}
           </h2>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
             <X className="w-6 h-6" />
@@ -82,7 +96,7 @@ const CategoriasModal = ({ isOpen, onClose, onSave, categoria = null }) => {
           <div className="flex gap-3 mt-6">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
             >
               Cancelar
