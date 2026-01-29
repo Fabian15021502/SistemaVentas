@@ -355,6 +355,7 @@ const Dashboard = () => {
                 <User className="w-5 h-5 text-purple-600" />
                 <span className="font-medium text-purple-900">Deudores</span>
               </button>
+
               <button
                 onClick={() => navigate("/inventario")}
                 className="w-full flex items-center gap-3 p-4 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors text-left"
@@ -369,6 +370,16 @@ const Dashboard = () => {
               >
                 <BarChart3 className="w-5 h-5 text-orange-600" />
                 <span className="font-medium text-orange-900">Reportes</span>
+              </button>
+
+              <button
+                onClick={() => navigate("/turno-caja")}
+                className="w-full flex items-center gap-3 p-4 bg-yellow-50 hover:bg-yellow-100 rounded-lg transition-colors text-left"
+              >
+                <DollarSign className="w-5 h-5 text-yellow-600" />
+                <span className="font-medium text-yellow-900">
+                  Turno y Caja
+                </span>
               </button>
             </div>
           </div>

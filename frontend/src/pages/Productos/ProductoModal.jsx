@@ -1,14 +1,26 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { X, Plus, Trash2 } from 'lucide-react';
 
 const ProductoModal = ({ isOpen, onClose, onSave, producto = null, categorias = [] }) => {
-  // 🔧 CORRECCIÓN: Inicializar con los valores del producto si existe
-  const [formData, setFormData] = useState({
-    nombre: producto?.nombre || '',
-    categoriaId: producto?.categoriaId || (categorias.length > 0 ? categorias[0].id : ''),
-    precioBase: producto?.precioBase || '',
-    variaciones: producto?.variaciones || []
-  });
+  // 🔧 CORRECCIÓN: Usar useMemo para inicializar el estado
+  const initialFormData = useMemo(() => {
+    if (producto) {
+      return {
+        nombre: producto.nombre || '',
+        categoriaId: producto.categoriaId || (categorias.length > 0 ? categorias[0].id : ''),
+        precioBase: producto.precioBase || '',
+        variaciones: producto.variaciones || []
+      };
+    }
+    return {
+      nombre: '',
+      categoriaId: categorias.length > 0 ? categorias[0].id : '',
+      precioBase: '',
+      variaciones: []
+    };
+  }, [producto, categorias]);
+
+  const [formData, setFormData] = useState(initialFormData);
 
   const [nuevaVariacion, setNuevaVariacion] = useState({
     tipo: '',
@@ -16,28 +28,14 @@ const ProductoModal = ({ isOpen, onClose, onSave, producto = null, categorias = 
     precioAdicional: 0
   });
 
-  // 🔧 CORRECCIÓN: Resetear form cuando cambie el producto
-  const resetForm = () => {
-    if (producto) {
-      setFormData({
-        nombre: producto.nombre,
-        categoriaId: producto.categoriaId,
-        precioBase: producto.precioBase,
-        variaciones: producto.variaciones || []
-      });
-    } else {
-      setFormData({
-        nombre: '',
-        categoriaId: categorias.length > 0 ? categorias[0].id : '',
-        precioBase: '',
-        variaciones: []
-      });
-    }
-  };
+  // Resetear cuando cambia el producto
+  const formKey = useMemo(() => {
+    return producto ? `edit-${producto.id}` : 'new';
+  }, [producto]);
 
-  // Resetear cuando se abre el modal
-  if (isOpen && !formData.nombre && producto) {
-    resetForm();
+  // Sincronizar formData cuando cambia initialFormData
+  if (producto && formData.nombre === '' && initialFormData.nombre !== '') {
+    setFormData(initialFormData);
   }
 
   const handleSubmit = (e) => {
@@ -106,7 +104,7 @@ const ProductoModal = ({ isOpen, onClose, onSave, producto = null, categorias = 
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6">
+        <form key={formKey} onSubmit={handleSubmit} className="p-6">
           <div className="space-y-6">
             {/* Información Básica */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -165,7 +163,10 @@ const ProductoModal = ({ isOpen, onClose, onSave, producto = null, categorias = 
 
             {/* Variaciones */}
             <div className="border-t border-gray-200 pt-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Variaciones (Opcional)</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Variaciones (Opcional)</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Las variaciones son diferentes presentaciones del mismo producto (ej: tamaños, sabores, etc.)
+              </p>
               
               {/* Lista de variaciones existentes */}
               {formData.variaciones.length > 0 && (
@@ -229,7 +230,8 @@ const ProductoModal = ({ isOpen, onClose, onSave, producto = null, categorias = 
                 <button
                   type="button"
                   onClick={agregarVariacion}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  disabled={!nuevaVariacion.tipo || !nuevaVariacion.valor}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Plus className="w-4 h-4" />
                   Agregar Variación

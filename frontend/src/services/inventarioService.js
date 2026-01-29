@@ -39,6 +39,7 @@ const inventarioService = {
 
       const response = await apiRequest('crearInventario', {
         productoId: parseInt(datos.productoId),
+        variacionId: datos.variacionId ? parseInt(datos.variacionId) : '',
         cantidad: parseInt(datos.cantidad),
         stockMinimo: parseInt(datos.stockMinimo) || 0,
         stockMaximo: parseInt(datos.stockMaximo) || 0,
@@ -54,7 +55,7 @@ const inventarioService = {
     }
   },
 
-  async actualizarInventario(productoId, datos) {
+  async actualizarInventario(productoId, variacionId, datos) {
     try {
       if (!productoId) {
         throw new Error('ID de producto no válido');
@@ -62,6 +63,7 @@ const inventarioService = {
 
       const response = await apiRequest('actualizarInventario', {
         productoId: parseInt(productoId),
+        variacionId: variacionId ? parseInt(variacionId) : '',
         stockMinimo: datos.stockMinimo !== undefined ? parseInt(datos.stockMinimo) : undefined,
         stockMaximo: datos.stockMaximo !== undefined ? parseInt(datos.stockMaximo) : undefined,
         ubicacion: datos.ubicacion?.trim(),
@@ -91,7 +93,8 @@ const inventarioService = {
 
       console.log('📋 Registrando movimiento:', movimiento);
 
-      const response = await apiRequest('registrarMovimiento', {
+      // 🔧 CORRECCIÓN: Asegurar que variacionId se envíe correctamente
+      const params = {
         productoId: parseInt(movimiento.productoId),
         tipo: movimiento.tipo,
         cantidad: parseInt(movimiento.cantidad),
@@ -99,7 +102,14 @@ const inventarioService = {
         referencia: movimiento.referencia?.trim() || '',
         costo: movimiento.costo ? parseFloat(movimiento.costo) : 0,
         usuario: movimiento.usuario || 'system'
-      });
+      };
+
+      // Solo agregar variacionId si existe
+      if (movimiento.variacionId) {
+        params.variacionId = parseInt(movimiento.variacionId);
+      }
+
+      const response = await apiRequest('registrarMovimiento', params);
 
       console.log('✅ Movimiento registrado');
       return response.data;
@@ -119,11 +129,18 @@ const inventarioService = {
     }
   },
 
-  async obtenerMovimientosPorProducto(productoId) {
+  async obtenerMovimientosPorProducto(productoId, variacionId = null) {
     try {
-      const response = await apiRequest('getMovimientosPorProducto', {
+      const params = {
         productoId: parseInt(productoId)
-      });
+      };
+
+      // Solo agregar variacionId si existe
+      if (variacionId) {
+        params.variacionId = parseInt(variacionId);
+      }
+
+      const response = await apiRequest('getMovimientosPorProducto', params);
       return response.data || [];
     } catch (error) {
       console.error('Error al obtener movimientos del producto:', error);
@@ -190,13 +207,18 @@ const inventarioService = {
 
   // ==================== VALORACIÓN ====================
 
-  async calcularValorInventario(productoId = null) {
+  async calcularValorInventario(productoId = null, variacionId = null) {
     try {
       const inventario = productoId 
         ? await this.obtenerInventarioPorProducto(productoId)
         : await this.obtenerInventario();
       
-      return inventario.reduce((total, item) => {
+      // Filtrar por variación si se especifica
+      const inventarioFiltrado = variacionId
+        ? inventario.filter(i => i.variacionId === parseInt(variacionId))
+        : inventario;
+      
+      return inventarioFiltrado.reduce((total, item) => {
         const valor = item.cantidad * (item.costoPromedio || 0);
         return total + valor;
       }, 0);
@@ -206,13 +228,13 @@ const inventarioService = {
     }
   },
 
-  async obtenerRotacionInventario(productoId, dias = 30) {
+  async obtenerRotacionInventario(productoId, variacionId = null, dias = 30) {
     try {
       const fechaFin = new Date();
       const fechaInicio = new Date();
       fechaInicio.setDate(fechaInicio.getDate() - dias);
       
-      const movimientos = await this.obtenerMovimientosPorProducto(productoId);
+      const movimientos = await this.obtenerMovimientosPorProducto(productoId, variacionId);
       const movimientosPeriodo = movimientos.filter(mov => {
         const fechaMov = new Date(mov.fecha);
         return fechaMov >= fechaInicio && fechaMov <= fechaFin;
@@ -223,8 +245,14 @@ const inventarioService = {
         .reduce((sum, m) => sum + m.cantidad, 0);
       
       const inventarioActual = await this.obtenerInventarioPorProducto(productoId);
-      const stockPromedio = inventarioActual.length > 0 
-        ? inventarioActual[0].cantidad 
+      
+      // Filtrar por variación si se especifica
+      const inventarioFiltrado = variacionId
+        ? inventarioActual.filter(i => i.variacionId === parseInt(variacionId))
+        : inventarioActual;
+      
+      const stockPromedio = inventarioFiltrado.length > 0 
+        ? inventarioFiltrado.reduce((sum, i) => sum + i.cantidad, 0) / inventarioFiltrado.length
         : 0;
       
       const rotacion = stockPromedio > 0 ? salidas / stockPromedio : 0;

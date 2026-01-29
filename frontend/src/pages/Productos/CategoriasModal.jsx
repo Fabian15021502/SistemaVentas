@@ -1,43 +1,33 @@
-import { useState } from 'react';
 import { X } from 'lucide-react';
+import { useMemo } from 'react';
 
 const CategoriasModal = ({ isOpen, onClose, onSave, categoria = null }) => {
-  // 🔧 CORRECCIÓN: Inicializar con los valores del producto si existe
-  // Esto evita el warning de setState en useEffect
-  const [formData, setFormData] = useState({
-    nombre: categoria?.nombre || '',
-    descripcion: categoria?.descripcion || ''
-  });
-
-  // 🔧 CORRECCIÓN: Resetear form cuando cambia la categoría o se abre/cierra
-  // Usar un key en el formulario en lugar de useEffect
-  const resetForm = () => {
+  // 🔧 CORRECCIÓN: Usar useMemo para inicializar el estado sin useEffect
+  const initialFormData = useMemo(() => {
     if (categoria) {
-      setFormData({
-        nombre: categoria.nombre,
-        descripcion: categoria.descripcion
-      });
-    } else {
-      setFormData({
-        nombre: '',
-        descripcion: ''
-      });
+      return {
+        nombre: categoria.nombre || '',
+        descripcion: categoria.descripcion || ''
+      };
     }
-  };
+    return {
+      nombre: '',
+      descripcion: ''
+    };
+  }, [categoria]);
 
-  // Resetear cuando se abre el modal
-  if (isOpen && !formData.nombre && categoria) {
-    resetForm();
-  }
+  // Usar un key para forzar el reset del formulario cuando cambia la categoría
+  const formKey = useMemo(() => {
+    return categoria ? `edit-${categoria.id}` : 'new';
+  }, [categoria]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    const formData = {
+      nombre: e.target.nombre.value,
+      descripcion: e.target.descripcion.value
+    };
     onSave(formData);
-    onClose();
-  };
-
-  const handleClose = () => {
-    setFormData({ nombre: '', descripcion: '' });
     onClose();
   };
 
@@ -52,7 +42,7 @@ const CategoriasModal = ({ isOpen, onClose, onSave, categoria = null }) => {
             {categoria ? 'Editar Categoría' : 'Nueva Categoría'}
           </h2>
           <button
-            onClick={handleClose}
+            onClick={onClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
             <X className="w-6 h-6" />
@@ -60,7 +50,7 @@ const CategoriasModal = ({ isOpen, onClose, onSave, categoria = null }) => {
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6">
+        <form key={formKey} onSubmit={handleSubmit} className="p-6">
           <div className="space-y-4">
             {/* Nombre */}
             <div>
@@ -69,8 +59,8 @@ const CategoriasModal = ({ isOpen, onClose, onSave, categoria = null }) => {
               </label>
               <input
                 type="text"
-                value={formData.nombre}
-                onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+                name="nombre"
+                defaultValue={initialFormData.nombre}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Ej: Bebidas"
                 required
@@ -83,8 +73,8 @@ const CategoriasModal = ({ isOpen, onClose, onSave, categoria = null }) => {
                 Descripción
               </label>
               <textarea
-                value={formData.descripcion}
-                onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
+                name="descripcion"
+                defaultValue={initialFormData.descripcion}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                 rows="3"
                 placeholder="Descripción de la categoría..."
@@ -96,7 +86,7 @@ const CategoriasModal = ({ isOpen, onClose, onSave, categoria = null }) => {
           <div className="flex gap-3 mt-6">
             <button
               type="button"
-              onClick={handleClose}
+              onClick={onClose}
               className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
             >
               Cancelar

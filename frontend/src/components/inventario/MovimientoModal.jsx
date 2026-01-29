@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { X, TrendingUp, TrendingDown, RefreshCw, AlertCircle, DollarSign } from 'lucide-react';
 
-const MovimientoModal = ({ isOpen, onClose, onRegistrar, producto, stockActual }) => {
+const MovimientoModal = ({ isOpen, onClose, onRegistrar, item, producto, stockActual }) => {
   const [formData, setFormData] = useState({
     tipo: 'entrada',
     cantidad: '',
@@ -41,11 +41,24 @@ const MovimientoModal = ({ isOpen, onClose, onRegistrar, producto, stockActual }
     }
 
     try {
-      await onRegistrar({
-        ...formData,
+      // 🔧 CORRECCIÓN: Pasar correctamente productoId y variacionId
+      const movimientoData = {
+        productoId: item.productoId,
+        tipo: formData.tipo,
         cantidad,
+        motivo: formData.motivo,
+        referencia: formData.referencia,
         costo: formData.costo ? parseFloat(formData.costo) : 0
-      });
+      };
+
+      // Solo agregar variacionId si existe
+      if (item.variacionId) {
+        movimientoData.variacionId = item.variacionId;
+      }
+
+      console.log('📝 Enviando movimiento:', movimientoData);
+
+      await onRegistrar(movimientoData);
 
       // Limpiar y cerrar
       setFormData({
@@ -107,6 +120,21 @@ const MovimientoModal = ({ isOpen, onClose, onRegistrar, producto, stockActual }
     }
   };
 
+  // Obtener nombre de la variación si existe
+  const getNombreVariacion = () => {
+    if (!item || !item.variacionId) return '';
+    
+    // Si producto tiene variaciones, buscar el nombre
+    if (producto && producto.variaciones && producto.variaciones.length > 0) {
+      const variacion = producto.variaciones.find(v => v.id === item.variacionId);
+      if (variacion) {
+        return ` - ${variacion.valor}`;
+      }
+    }
+    
+    return '';
+  };
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -119,7 +147,9 @@ const MovimientoModal = ({ isOpen, onClose, onRegistrar, producto, stockActual }
               </div>
               <div>
                 <h2 className="text-xl font-bold">Registrar Movimiento</h2>
-                <p className="text-sm text-white/90">{producto?.nombre || 'Producto'}</p>
+                <p className="text-sm text-white/90">
+                  {producto?.nombre || 'Producto'}{getNombreVariacion()}
+                </p>
               </div>
             </div>
             <button

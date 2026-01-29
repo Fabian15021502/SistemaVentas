@@ -7,10 +7,8 @@ import {
   TrendingUp, 
   AlertTriangle, 
   Search,
-  Filter,
   Download,
-  RefreshCw,
-  Plus
+  RefreshCw
 } from 'lucide-react';
 import inventarioService from '../../services/inventarioService';
 import productosService from '../../services/productosService';
@@ -27,7 +25,7 @@ const InventarioPage = () => {
   const [refreshing, setRefreshing] = useState(false);
   
   const [busqueda, setBusqueda] = useState('');
-  const [filtroEstado, setFiltroEstado] = useState('todos'); // todos, bajo, sin-stock
+  const [filtroEstado, setFiltroEstado] = useState('todos');
   
   const [modalMovimiento, setModalMovimiento] = useState(false);
   const [itemSeleccionado, setItemSeleccionado] = useState(null);
@@ -74,7 +72,6 @@ const InventarioPage = () => {
     try {
       await inventarioService.registrarMovimiento({
         ...datos,
-        productoId: itemSeleccionado.productoId,
         usuario: user?.email || 'system'
       });
       
@@ -88,11 +85,13 @@ const InventarioPage = () => {
   };
 
   const handleVerMovimientos = (item) => {
-    navigate(`/inventario/movimientos/${item.productoId}`);
+    navigate(`/inventario/movimientos/${item.productoId}${item.variacionId ? `/${item.variacionId}` : ''}`);
   };
 
+  // 🔧 CORRECCIÓN: Pasar correctamente item y producto
   const handleAjustar = (item) => {
-    setItemSeleccionado(item);
+    const producto = productos.find(p => p.id === item.productoId);
+    setItemSeleccionado({ item, producto });
     setModalMovimiento(true);
   };
 
@@ -304,7 +303,7 @@ const InventarioPage = () => {
               const producto = productos.find(p => p.id === item.productoId);
               return (
                 <StockCard
-                  key={item.id || item.productoId}
+                  key={item.id || `${item.productoId}-${item.variacionId || 'null'}`}
                   item={item}
                   producto={producto}
                   onVerMovimientos={handleVerMovimientos}
@@ -335,8 +334,9 @@ const InventarioPage = () => {
             setItemSeleccionado(null);
           }}
           onRegistrar={handleRegistrarMovimiento}
-          producto={productos.find(p => p.id === itemSeleccionado.productoId)}
-          stockActual={itemSeleccionado.cantidad}
+          item={itemSeleccionado.item}
+          producto={itemSeleccionado.producto}
+          stockActual={itemSeleccionado.item.cantidad}
         />
       )}
     </div>
