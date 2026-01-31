@@ -20,6 +20,7 @@ import VentasChart from "../components/dashboard/VentasChart";
 import CategoriasChart from "../components/dashboard/CategoriasChart";
 import TopProductos from "../components/dashboard/TopProductos";
 import VentasPorEmpleado from "../components/dashboard/VentasPorEmpleado";
+import { Receipt } from "lucide-react";
 
 const Dashboard = () => {
   const { user, logout } = useAuth();
@@ -379,6 +380,15 @@ const Dashboard = () => {
                 <DollarSign className="w-5 h-5 text-yellow-600" />
                 <span className="font-medium text-yellow-900">
                   Turno y Caja
+                </span>
+              </button>
+              <button
+                onClick={() => navigate("/facturas")}
+                className="w-full flex items-center gap-3 p-4 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors text-left"
+              >
+                <Receipt className="w-5 h-5 text-purple-600" />
+                <span className="font-medium text-purple-900">
+                  Mis Facturas
                 </span>
               </button>
             </div>

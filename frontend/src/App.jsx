@@ -14,8 +14,9 @@ import ProductosPage from "./pages/Productos/ProductosPage";
 import VentasPage from "./pages/Ventas/VentasPage";
 import DeudoresPage from "./pages/Deudores/DeudoresPage";
 import ReportesPage from "./pages/Reportes/ReportesPage";
-import InventarioPage from "./pages/Inventario/InventarioPage"; // ✅ AGREGADO
-import TurnoCajaPage from "./pages/TurnoCaja/TurnoCajaPage"; // ✅ AGREGADO
+import InventarioPage from "./pages/Inventario/InventarioPage";
+import TurnoCajaPage from "./pages/TurnoCaja/TurnoCajaPage";
+import FacturasPage from "./pages/Facturas/facturasPage"; // ✅ Importar la nueva página de Facturas
 
 function App() {
   return (
@@ -97,11 +98,22 @@ function App() {
               </PrivateRoute>
             }
           />
+          
           <Route
             path="/turno-caja"
             element={
               <PrivateRoute>
                 <TurnoCajaPage />
+              </PrivateRoute>
+            }
+          />
+
+          {/* ✅ NUEVA RUTA: Facturas */}
+          <Route
+            path="/facturas"
+            element={
+              <PrivateRoute>
+                <FacturasPage />
               </PrivateRoute>
             }
           />

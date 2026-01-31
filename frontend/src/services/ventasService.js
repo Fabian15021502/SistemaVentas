@@ -1,9 +1,70 @@
+// src/services/ventasService.js
+// REEMPLAZAR COMPLETAMENTE
+
 import apiRequest from '../config/googleSheets';
 
 const ventasService = {
+  
+  /**
+   * Validar stock disponible antes de registrar venta
+   */
+  async validarStockDisponible(items) {
+    try {
+      // Importar inventarioService
+      const inventarioService = (await import('./inventarioService')).default;
+      const inventario = await inventarioService.obtenerInventario();
+      
+      const erroresStock = [];
+      
+      for (const item of items) {
+        const productoId = parseInt(item.productoId);
+        const variacionId = item.variacionId ? parseInt(item.variacionId) : null;
+        const cantidadSolicitada = parseInt(item.cantidad);
+        
+        // Buscar en inventario
+        const itemInventario = inventario.find(inv => 
+          parseInt(inv.productoId) === productoId && 
+          (variacionId ? parseInt(inv.variacionId) === variacionId : !inv.variacionId)
+        );
+        
+        if (!itemInventario) {
+          erroresStock.push({
+            producto: item.productoNombre,
+            variacion: item.variacionValor,
+            error: 'No hay inventario registrado'
+          });
+          continue;
+        }
+        
+        const stockDisponible = parseFloat(itemInventario.cantidad) || 0;
+        
+        if (stockDisponible < cantidadSolicitada) {
+          erroresStock.push({
+            producto: item.productoNombre,
+            variacion: item.variacionValor,
+            solicitado: cantidadSolicitada,
+            disponible: stockDisponible,
+            error: `Stock insuficiente (disponible: ${stockDisponible})`
+          });
+        }
+      }
+      
+      return {
+        valido: erroresStock.length === 0,
+        errores: erroresStock
+      };
+    } catch (error) {
+      console.error('Error al validar stock:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Registrar venta con validación de stock
+   */
   async registrarVenta(venta) {
     try {
-      // Validaciones
+      // Validaciones básicas
       if (!venta.items || venta.items.length === 0) {
         throw new Error('Debe agregar al menos un producto a la venta');
       }
@@ -14,6 +75,20 @@ const ventasService = {
         throw new Error('Debe seleccionar un método de pago');
       }
 
+      console.log('📝 Validando stock antes de registrar venta...');
+      
+      // 🔧 VALIDACIÓN DE STOCK
+      const validacion = await this.validarStockDisponible(venta.items);
+      
+      if (!validacion.valido) {
+        const erroresTexto = validacion.errores.map(e => 
+          `${e.producto} ${e.variacion || ''}: ${e.error}`
+        ).join('\n');
+        
+        throw new Error(`Stock insuficiente:\n${erroresTexto}`);
+      }
+      
+      console.log('✅ Stock validado correctamente');
       console.log('📝 Registrando venta:', {
         total: venta.total,
         metodoPago: venta.metodoPago,
@@ -31,7 +106,6 @@ const ventasService = {
         subtotal: parseFloat(item.subtotal)
       })));
 
-      // CORRECCIÓN: Convertir teléfono a string antes de usar trim()
       const response = await apiRequest('registrarVenta', {
         empleadoId: venta.empleadoId || 'system',
         total: parseFloat(venta.total),
@@ -40,6 +114,10 @@ const ventasService = {
         clienteTelefono: venta.clienteTelefono ? String(venta.clienteTelefono).trim() : '',
         items: itemsJson
       });
+
+      if (!response.success) {
+        throw new Error(response.error || 'Error al registrar venta');
+      }
 
       console.log('✅ Venta registrada exitosamente');
       return response.data;
