@@ -1,16 +1,17 @@
 import { TrendingUp, Package } from 'lucide-react';
 
 const TopProductos = ({ productos }) => {
-  const maxVenta = productos.length > 0 ? Math.max(...productos.map(p => p.totalVentas)) : 1;
+  const maxVenta = productos.length > 0 ? Math.max(...productos.map(p => p.total || 0)) : 1;
 
   return (
     <div className="space-y-4">
       {productos.length > 0 ? (
         productos.map((producto, index) => {
-          const porcentaje = (producto.totalVentas / maxVenta) * 100;
+          const key = producto.id || producto.productoId || index;
+          const porcentaje = ((producto.total || 0) / (maxVenta || 1)) * 100;
           
           return (
-            <div key={producto.id} className="relative">
+            <div key={key} className="relative">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-3">
                   <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-600 font-bold text-sm">
@@ -19,13 +20,13 @@ const TopProductos = ({ productos }) => {
                   <div>
                     <p className="font-medium text-gray-900">{producto.nombre}</p>
                     <p className="text-xs text-gray-500">
-                      {producto.cantidadVendida} unidades vendidas
+                      {producto.cantidad || producto.cantidadVendida || 0} unidades vendidas
                     </p>
                   </div>
                 </div>
                 <div className="text-right">
                   <p className="font-bold text-green-600">
-                    ${producto.totalVentas.toLocaleString()}
+                    ${(producto.total || 0).toLocaleString()}
                   </p>
                 </div>
               </div>

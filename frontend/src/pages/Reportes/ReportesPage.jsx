@@ -118,8 +118,8 @@ const ReportesPage = () => {
               });
               
               // Calcular totales en el rango
-              const totalDeudasRango = deudasEnRango.reduce((sum, d) => sum + d.monto, 0);
-              const saldoPendienteRango = deudasEnRango.reduce((sum, d) => sum + d.saldo, 0);
+              const totalDeudasRango = deudasEnRango.reduce((sum, d) => sum + (parseFloat(d.monto) || 0), 0);
+const saldoPendienteRango = deudasEnRango.reduce((sum, d) => sum + (parseFloat(d.saldo) || 0), 0);
               
               return {
                 ...deudor,

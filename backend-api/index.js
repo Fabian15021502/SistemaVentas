@@ -1129,10 +1129,13 @@ app.post('/api/cajas/:id/cerrar', async (req, res) => {
     });
 
     // Cerrar caja
-    batch.update(db.collection('cajas').doc(id), {
-      estado: 'cerrada',
-      fechaCierre: new Date()
-    });
+batch.update(db.collection('cajas').doc(id), {
+  estado: 'cerrada',
+  fechaCierre: new Date(),
+  diferencia: diferencias.total,
+  totalEsperado,
+  totalReal
+});
 
     await batch.commit();
 
@@ -1209,40 +1212,72 @@ app.get('/api/dashboard/stats', async (req, res) => {
       .get();
 
     const ventasPorMetodo = {};
-    const ventasPorCategoria = {};
-    const productoContador = {};
+const ventasPorCategoria = {};
+const productoContador = {};
 
-    ventasSemanaSnapshot.forEach(doc => {
-      const v = doc.data();
-      const metodo = (v.metodoPago || 'otro').toLowerCase();
-      ventasPorMetodo[metodo] = (ventasPorMetodo[metodo] || 0) + (v.total || 0);
-    });
+// Construir array de ventas por día para gráfico semanal
+const ventasUltimaSemana = {};
+ventasSemanaSnapshot.forEach(doc => {
+  const v = doc.data();
+  const metodo = (v.metodoPago || 'otro').toLowerCase();
+  ventasPorMetodo[metodo] = (ventasPorMetodo[metodo] || 0) + (v.total || 0);
 
-    // Top productos: leer items de ventas del mes
-    const itemsPromises = [];
-    ventasMesSnapshot.forEach(doc => {
-      itemsPromises.push(
-        db.collection('ventas').doc(doc.id).collection('items').get()
-      );
-    });
+  // Agrupar por día
+  const fecha = new Date(
+    v.fecha && v.fecha._seconds
+      ? v.fecha._seconds * 1000
+      : v.fecha && v.fecha.seconds
+      ? v.fecha.seconds * 1000
+      : v.fecha
+  );
+  if (!isNaN(fecha.getTime())) {
+    const key = fecha.toISOString().split('T')[0];
+    if (!ventasUltimaSemana[key]) {
+      ventasUltimaSemana[key] = {
+        fecha: key,
+        dia: ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][fecha.getDay()],
+        total: 0,
+        cantidad: 0
+      };
+    }
+    ventasUltimaSemana[key].total += v.total || 0;
+    ventasUltimaSemana[key].cantidad++;
+  }
+});
 
-    const itemsResults = await Promise.all(itemsPromises);
-    itemsResults.forEach(itemsSnap => {
-      itemsSnap.forEach(itemDoc => {
-        const item = itemDoc.data();
-        const pid = item.productoId;
-        if (!pid) return;
-        if (!productoContador[pid]) {
-          productoContador[pid] = { productoId: pid, nombre: item.productoNombre || '', cantidad: 0, total: 0 };
-        }
-        productoContador[pid].cantidad += parseInt(item.cantidad) || 0;
-        productoContador[pid].total += parseFloat(item.subtotal) || 0;
+// Resolver nombres de categorías
+const categoriasSnapshot = await db.collection('categorias').get();
+const categoriasMap = {};
+categoriasSnapshot.forEach(doc => {
+  categoriasMap[doc.id] = doc.data().nombre;
+});
 
-        const cat = item.categoriaId || item.categoria || 'Sin categoría';
-        ventasPorCategoria[cat] = (ventasPorCategoria[cat] || 0) + (parseFloat(item.subtotal) || 0);
-      });
-    });
+// Top productos: leer items de ventas del mes
+const itemsPromises = [];
+ventasMesSnapshot.forEach(doc => {
+  itemsPromises.push(
+    db.collection('ventas').doc(doc.id).collection('items').get()
+  );
+});
 
+const itemsResults = await Promise.all(itemsPromises);
+itemsResults.forEach(itemsSnap => {
+  itemsSnap.forEach(itemDoc => {
+    const item = itemDoc.data();
+    const pid = item.productoId;
+    if (!pid) return;
+    if (!productoContador[pid]) {
+      productoContador[pid] = { productoId: pid, nombre: item.productoNombre || '', cantidad: 0, total: 0 };
+    }
+    productoContador[pid].cantidad += parseInt(item.cantidad) || 0;
+    productoContador[pid].total += parseFloat(item.subtotal) || 0;
+
+    // Usar nombre de categoría en lugar del ID
+    const catId = item.categoriaId;
+    const catNombre = categoriasMap[catId] || item.categoria || 'Sin categoría';
+    ventasPorCategoria[catNombre] = (ventasPorCategoria[catNombre] || 0) + (parseFloat(item.subtotal) || 0);
+  });
+});
     const productosMasVendidos = Object.values(productoContador)
       .sort((a, b) => b.cantidad - a.cantidad)
       .slice(0, 5);
@@ -1259,20 +1294,21 @@ app.get('/api/dashboard/stats', async (req, res) => {
     });
 
     res.json({
-      success: true,
-      data: {
-        ventasHoy,
-        ventasMes,
-        totalDiario,
-        totalMensual,
-        deudaTotal,
-        deudoresConDeuda: deudoresConDeuda.size,
-        ventasPorMetodo,
-        ventasPorCategoria: ventasPorCategoriaArray,
-        productosMasVendidos,
-        ultimasVentas: []
-      }
-    });
+  success: true,
+  data: {
+    ventasHoy,
+    ventasMes,
+    totalDiario,
+    totalMensual,
+    deudaTotal,
+    deudoresConDeuda: deudoresConDeuda.size,
+    ventasPorMetodo,
+    ventasPorCategoria: ventasPorCategoriaArray,
+    ventasUltimaSemana: Object.values(ventasUltimaSemana).sort((a, b) => a.fecha.localeCompare(b.fecha)),
+    productosMasVendidos,
+    ultimasVentas: []
+  }
+});
   } catch (error) {
     console.error('Error en getDashboardStats:', error);
     res.status(500).json({ success: false, error: error.message });

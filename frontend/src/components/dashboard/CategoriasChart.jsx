@@ -3,7 +3,6 @@ import { useMemo } from 'react';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
-// Componente CustomTooltip fuera del render
 const CustomTooltip = ({ active, payload, data }) => {
   if (active && payload && payload.length) {
     const porcentaje = ((payload[0].value / data.reduce((sum, item) => sum + item.total, 0)) * 100).toFixed(1);
@@ -21,8 +20,8 @@ const CustomTooltip = ({ active, payload, data }) => {
 };
 
 const CategoriasChart = ({ data }) => {
-  const totalVentas = useMemo(() => 
-    data.reduce((sum, item) => sum + item.total, 0), 
+  const totalVentas = useMemo(() =>
+    data.reduce((sum, item) => sum + item.total, 0),
     [data]
   );
 
@@ -43,15 +42,15 @@ const CategoriasChart = ({ data }) => {
           outerRadius={100}
           fill="#8884d8"
           dataKey="total"
-          nameKey="nombre"
+          nameKey="categoria"  // ← corregido: era "nombre", el backend manda "categoria"
         >
           {data.map((entry, index) => (
             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
           ))}
         </Pie>
         <Tooltip content={(props) => <CustomTooltip {...props} data={data} />} />
-        <Legend 
-          verticalAlign="bottom" 
+        <Legend
+          verticalAlign="bottom"
           height={36}
           formatter={(value) => (
             <span className="text-sm text-gray-700">{value}</span>
