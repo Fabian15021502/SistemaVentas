@@ -167,10 +167,10 @@ const TurnoCajaPage = () => {
     };
 
     ventas.forEach(venta => {
-      const metodo = venta.metodoPago.toLowerCase();
-      const total = venta.total;
+      const metodo = (venta.metodoPago || '').toLowerCase();
+      const total = parseFloat(venta.total) || 0;
       
-      if (totales[metodo] !== undefined) {
+      if (metodo && totales[metodo] !== undefined) {
         totales[metodo] += total;
       }
       totales.total += total;
@@ -261,7 +261,11 @@ const TurnoCajaPage = () => {
                 <div>
                   <h2 className="text-lg font-semibold">Turno Activo</h2>
                   <p className="text-blue-100 text-sm">
-                    Iniciado: {new Date(turnoActivo.fechaInicio).toLocaleString('es-CO')}
+                    Iniciado: {(() => {
+                      const f = turnoActivo.fechaInicio;
+                      const d = f?.seconds ? new Date(f.seconds * 1000) : f?._seconds ? new Date(f._seconds * 1000) : new Date(f);
+                      return isNaN(d) ? '' : d.toLocaleString('es-CO');
+                    })()}
                   </p>
                 </div>
                 <Clock className="w-12 h-12 opacity-50" />
@@ -293,7 +297,7 @@ const TurnoCajaPage = () => {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                   <div>
                     <p className="text-sm text-gray-600">Base Inicial</p>
-                    <p className="text-xl font-bold text-gray-900">${cajaActiva.baseInicial.toLocaleString()}</p>
+                    <p className="text-xl font-bold text-gray-900">${(parseFloat(cajaActiva.baseInicial) || 0).toLocaleString()}</p>
                   </div>
                   <div>
                     <p className="text-sm text-gray-600">Efectivo Esperado</p>
@@ -325,7 +329,11 @@ const TurnoCajaPage = () => {
                         {ventasCaja.map((venta) => (
                           <tr key={venta.id}>
                             <td className="px-4 py-2 text-sm text-gray-900">
-                              {new Date(venta.fecha).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
+                              {(() => {
+                                const f = venta.fecha;
+                                const d = f?.seconds ? new Date(f.seconds * 1000) : f?._seconds ? new Date(f._seconds * 1000) : new Date(f);
+                                return isNaN(d) ? '--:--' : d.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+                              })()}
                             </td>
                             <td className="px-4 py-2 text-sm">
                               <span className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -374,7 +382,11 @@ const TurnoCajaPage = () => {
                         <div>
                           <p className="font-semibold text-gray-900">{cierre.empleado.split('@')[0]}</p>
                           <p className="text-xs text-gray-600">
-                            {new Date(cierre.fechaCierre).toLocaleString('es-CO')}
+                            {(() => {
+                              const f = cierre.fechaCierre;
+                              const d = f?.seconds ? new Date(f.seconds * 1000) : f?._seconds ? new Date(f._seconds * 1000) : new Date(f);
+                              return isNaN(d) ? 'Sin fecha' : d.toLocaleString('es-CO');
+                            })()}
                           </p>
                         </div>
                         <div className={`px-3 py-1 rounded-full text-sm font-semibold ${
@@ -382,17 +394,17 @@ const TurnoCajaPage = () => {
                           cierre.diferencia > 0 ? 'bg-blue-100 text-blue-800' :
                           'bg-red-100 text-red-800'
                         }`}>
-                          {cierre.diferencia >= 0 ? '+' : ''}${cierre.diferencia.toLocaleString()}
+                          {cierre.diferencia >= 0 ? '+' : ''}${(cierre.diferencia ?? 0).toLocaleString()}
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-sm">
                         <div>
                           <span className="text-gray-600">Esperado:</span>
-                          <span className="ml-2 font-semibold">${cierre.totalEsperado.toLocaleString()}</span>
+                          <span className="ml-2 font-semibold">${(cierre.totalEsperado ?? 0).toLocaleString()}</span>
                         </div>
                         <div>
                           <span className="text-gray-600">Real:</span>
-                          <span className="ml-2 font-semibold">${cierre.totalReal.toLocaleString()}</span>
+                          <span className="ml-2 font-semibold">${(cierre.totalReal ?? 0).toLocaleString()}</span>
                         </div>
                       </div>
                       {cierre.observaciones && (

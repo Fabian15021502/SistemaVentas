@@ -1,23 +1,27 @@
 // src/services/turnoService.js
-import apiRequest from '../config/googleSheets';
+import api from './apiClient';
 
 const turnoService = {
-  
+
   // ==================== TURNOS ====================
-  
+
   async obtenerTurnoActivo() {
     try {
-      const response = await apiRequest('getTurnoActivo');
-      return response.data;
+      const response = await api.get('/api/turnos/activo');
+      return response.data || null;
     } catch (error) {
       console.error('Error al obtener turno activo:', error);
       return null;
     }
   },
 
-  async abrirTurno() {
+  async abrirTurno(turno = {}) {
     try {
-      const response = await apiRequest('abrirTurno');
+      const response = await api.post('/api/turnos/abrir', {
+        empleadoId: turno.empleadoId || turno.empleado || '',
+        capitalInicial: parseFloat(turno.capitalInicial || turno.baseInicial) || 0,
+        observaciones: turno.observaciones || ''
+      });
       return response.data;
     } catch (error) {
       console.error('Error al abrir turno:', error);
@@ -27,8 +31,8 @@ const turnoService = {
 
   async cerrarTurno(turnoId, datos = {}) {
     try {
-      const response = await apiRequest('cerrarTurno', {
-        turnoId: parseInt(turnoId),
+      const response = await api.post(`/api/turnos/${turnoId}/cerrar`, {
+        capitalFinal: parseFloat(datos.capitalFinal) || 0,
         observaciones: datos.observaciones || ''
       });
       return response.data;
@@ -40,9 +44,7 @@ const turnoService = {
 
   async obtenerVentasDelTurno(turnoId) {
     try {
-      const response = await apiRequest('getVentasDelTurno', {
-        turnoId: parseInt(turnoId)
-      });
+      const response = await api.get(`/api/turnos/${turnoId}/ventas`);
       return response.data || [];
     } catch (error) {
       console.error('Error al obtener ventas del turno:', error);
@@ -52,31 +54,35 @@ const turnoService = {
 
   // ==================== CAJAS ====================
 
-  async obtenerCajaActiva(turnoId, empleado) {
+  async obtenerCajaActiva(turnoId = null, empleado = null) {
     try {
-      const response = await apiRequest('getCajaActiva', {
-        turnoId: parseInt(turnoId),
-        empleado: empleado
-      });
-      return response.data;
+      const params = new URLSearchParams();
+      if (turnoId) params.append('turnoId', turnoId);
+      if (empleado) params.append('empleado', empleado);
+
+      const response = await api.get(`/api/cajas/activa?${params}`);
+      return response.data || null;
     } catch (error) {
       console.error('Error al obtener caja activa:', error);
       return null;
     }
   },
 
-  async abrirCaja(datos) {
+  async abrirCaja(caja) {
     try {
-      if (!datos.empleado) {
-        throw new Error('Empleado es obligatorio');
+      if (!caja.turnoId && !caja.empleado) {
+        throw new Error('turnoId o empleado son requeridos');
       }
-      if (!datos.baseInicial || datos.baseInicial < 0) {
+      if (caja.baseInicial !== undefined && caja.baseInicial < 0) {
         throw new Error('La base inicial debe ser mayor o igual a 0');
       }
 
-      const response = await apiRequest('abrirCaja', {
-        empleado: datos.empleado,
-        baseInicial: parseFloat(datos.baseInicial)
+      const response = await api.post('/api/cajas/abrir', {
+        turnoId: caja.turnoId || '',
+        empleado: caja.empleado || '',
+        baseInicial: parseFloat(caja.baseInicial || caja.capitalInicial) || 0,
+        denominaciones: caja.denominaciones || {},
+        observaciones: caja.observaciones || ''
       });
 
       return response.data;
@@ -88,15 +94,12 @@ const turnoService = {
 
   async cerrarCaja(cajaId, datos) {
     try {
-      if (!cajaId) {
-        throw new Error('ID de caja no válido');
-      }
+      if (!cajaId) throw new Error('ID de caja no válido');
 
-      const response = await apiRequest('cerrarCaja', {
-        cajaId: parseInt(cajaId),
-        efectivoReal: parseFloat(datos.efectivoReal) || 0,
-        tarjetaReal: parseFloat(datos.tarjetaReal) || 0,
-        transferenciaReal: parseFloat(datos.transferenciaReal) || 0,
+      const response = await api.post(`/api/cajas/${cajaId}/cerrar`, {
+        totalEfectivo: parseFloat(datos.totalEfectivo || datos.efectivoReal) || 0,
+        totalTransferencias: parseFloat(datos.totalTransferencias || datos.transferenciaReal) || 0,
+        totalTarjeta: parseFloat(datos.totalTarjeta || datos.tarjetaReal) || 0,
         observaciones: datos.observaciones || ''
       });
 
@@ -109,9 +112,7 @@ const turnoService = {
 
   async obtenerVentasDeCaja(cajaId) {
     try {
-      const response = await apiRequest('getVentasDeCaja', {
-        cajaId: parseInt(cajaId)
-      });
+      const response = await api.get(`/api/cajas/${cajaId}/ventas`);
       return response.data || [];
     } catch (error) {
       console.error('Error al obtener ventas de la caja:', error);
@@ -121,15 +122,10 @@ const turnoService = {
 
   async obtenerCierresCaja(turnoId, empleado = null) {
     try {
-      const params = {
-        turnoId: parseInt(turnoId)
-      };
-      
-      if (empleado) {
-        params.empleado = empleado;
-      }
+      const params = new URLSearchParams({ turnoId });
+      if (empleado) params.append('empleado', empleado);
 
-      const response = await apiRequest('getCierresCaja', params);
+      const response = await api.get(`/api/cajas/cierres?${params}`);
       return response.data || [];
     } catch (error) {
       console.error('Error al obtener cierres de caja:', error);

@@ -32,6 +32,31 @@ app.use(limiter);
 initializeFirebase();
 const db = getDB();
 
+// Helper: busca inventario tolerando variacionId null o string vacío
+// Declarada como function (no const) para que el hoisting de Node la
+// haga disponible aunque se llame antes de su posición en el archivo.
+async function buscarInventario(productoId, variacionId) {
+  const vid = (variacionId === '' || variacionId === undefined) ? null : variacionId;
+
+  // Intento 1: con el valor normalizado (null o el id real)
+  let q = await db.collection('inventario')
+    .where('productoId', '==', productoId)
+    .where('variacionId', '==', vid)
+    .limit(1).get();
+
+  if (!q.empty) return q;
+
+  // Intento 2: el valor alternativo ('' si buscamos null, null si buscamos '')
+  const alt = vid === null ? '' : null;
+  q = await db.collection('inventario')
+    .where('productoId', '==', productoId)
+    .where('variacionId', '==', alt)
+    .limit(1).get();
+
+  return q;
+}
+
+
 // =====================================================
 // HEALTH CHECK
 // =====================================================
@@ -233,7 +258,13 @@ app.post('/api/productos', async (req, res) => {
 // =====================================================
 app.get('/api/inventario', async (req, res) => {
   try {
-    const snapshot = await db.collection('inventario').get();
+    let query = db.collection('inventario');
+
+    if (req.query.productoId) {
+      query = query.where('productoId', '==', req.query.productoId);
+    }
+
+    const snapshot = await query.get();
 
     const inventario = [];
     snapshot.forEach(doc => {
@@ -276,11 +307,7 @@ app.put('/api/inventario', async (req, res) => {
     const { productoId, variacionId, cantidad, stockMinimo, stockMaximo, ubicacion, notas } = req.body;
     
     // Buscar el registro de inventario
-    const querySnapshot = await db.collection('inventario')
-      .where('productoId', '==', productoId)
-      .where('variacionId', '==', variacionId || null)
-      .limit(1)
-      .get();
+    const querySnapshot = await buscarInventario(productoId, variacionId);
 
     if (querySnapshot.empty) {
       return res.status(404).json({ 
@@ -352,11 +379,7 @@ app.post('/api/movimientos', async (req, res) => {
     });
 
     // 2. Actualizar inventario
-    const invQuery = await db.collection('inventario')
-      .where('productoId', '==', productoId)
-      .where('variacionId', '==', variacionId || null)
-      .limit(1)
-      .get();
+    const invQuery = await buscarInventario(productoId, variacionId);
 
     if (!invQuery.empty) {
       const invDoc = invQuery.docs[0];
@@ -419,25 +442,51 @@ app.post('/api/movimientos', async (req, res) => {
 // =====================================================
 app.get('/api/ventas', async (req, res) => {
   try {
+    // Estrategia: aplicar UN solo filtro de Firestore + resto en memoria
+    // para evitar requerir índices compuestos adicionales
     let query = db.collection('ventas').orderBy('fecha', 'desc');
 
-    // Filtros opcionales
-    if (req.query.turnoId) {
-      query = query.where('turnoId', '==', req.query.turnoId);
+    // Rango de fechas: usa solo where('fecha') combinado con orderBy('fecha') — índice simple
+    if (req.query.desde) {
+      const desde = new Date(req.query.desde);
+      desde.setHours(0, 0, 0, 0);
+      query = query.where('fecha', '>=', desde);
     }
-    if (req.query.cajaId) {
-      query = query.where('cajaId', '==', req.query.cajaId);
+    if (req.query.hasta) {
+      const hasta = new Date(req.query.hasta);
+      hasta.setHours(23, 59, 59, 999);
+      query = query.where('fecha', '<=', hasta);
     }
+
+    // Filtros simples sin fecha (usan índices compuestos ya creados)
+    if (!req.query.desde && !req.query.hasta) {
+      if (req.query.turnoId) {
+        query = query.where('turnoId', '==', req.query.turnoId);
+      } else if (req.query.cajaId) {
+        query = query.where('cajaId', '==', req.query.cajaId);
+      } else if (req.query.empleadoId) {
+        query = query.where('empleadoId', '==', req.query.empleadoId);
+      }
+    }
+
     if (req.query.limit) {
       query = query.limit(parseInt(req.query.limit));
     }
 
     const snapshot = await query.get();
 
-    const ventas = [];
+    let ventas = [];
     snapshot.forEach(doc => {
       ventas.push({ id: doc.id, ...doc.data() });
     });
+
+    // Filtros adicionales en memoria (cuando se combinan con fechas)
+    if (req.query.empleadoId) {
+      ventas = ventas.filter(v => v.empleadoId === req.query.empleadoId);
+    }
+    if (req.query.turnoId && (req.query.desde || req.query.hasta)) {
+      ventas = ventas.filter(v => v.turnoId === req.query.turnoId);
+    }
 
     res.json({ success: true, data: ventas });
   } catch (error) {
@@ -519,16 +568,12 @@ app.post('/api/ventas', async (req, res) => {
 
     // 3. Validar stock ANTES de registrar
     for (const item of items) {
-      const invQuery = await db.collection('inventario')
-        .where('productoId', '==', item.productoId)
-        .where('variacionId', '==', item.variacionId || null)
-        .limit(1)
-        .get();
+      const invQuery = await buscarInventario(item.productoId, item.variacionId);
 
       if (invQuery.empty) {
         return res.status(400).json({
           success: false,
-          error: `No hay inventario registrado para: ${item.productoNombre} ${item.variacion || ''}`
+          error: `No hay inventario registrado para: ${item.productoNombre} ${item.variacion || ''}. Verifique que el producto tenga stock ingresado.`
         });
       }
 
@@ -573,11 +618,7 @@ app.post('/api/ventas', async (req, res) => {
       });
 
       // Descontar inventario
-      const invQuery = await db.collection('inventario')
-        .where('productoId', '==', item.productoId)
-        .where('variacionId', '==', item.variacionId || null)
-        .limit(1)
-        .get();
+      const invQuery = await buscarInventario(item.productoId, item.variacionId);
 
       const invDoc = invQuery.docs[0];
       const stockActual = invDoc.data().cantidad || 0;
@@ -1166,6 +1207,324 @@ app.get('/api/dashboard/stats', async (req, res) => {
     });
   } catch (error) {
     console.error('Error en getDashboardStats:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// =====================================================
+// PRODUCTOS - ENDPOINTS FALTANTES
+// =====================================================
+
+// GET /api/productos/:id
+app.get('/api/productos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const doc = await db.collection('productos').doc(id).get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ success: false, error: 'Producto no encontrado' });
+    }
+
+    const producto = { id: doc.id, ...doc.data() };
+
+    const variacionesSnapshot = await db.collection('productos')
+      .doc(id).collection('variaciones').get();
+
+    producto.variaciones = [];
+    variacionesSnapshot.forEach(v => {
+      producto.variaciones.push({ id: v.id, ...v.data() });
+    });
+
+    res.json({ success: true, data: producto });
+  } catch (error) {
+    console.error('Error en getProductoPorId:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// PUT /api/productos/:id
+app.put('/api/productos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, descripcion, precio, precioBase, categoriaId, categoria, sku, variaciones, activo } = req.body;
+
+    const updateData = { fechaActualizacion: new Date() };
+    if (nombre !== undefined) updateData.nombre = nombre;
+    if (descripcion !== undefined) updateData.descripcion = descripcion;
+    if (precio !== undefined) updateData.precioBase = parseFloat(precio);
+    if (precioBase !== undefined) updateData.precioBase = parseFloat(precioBase);
+    if (categoriaId !== undefined) updateData.categoriaId = categoriaId;
+    if (categoria !== undefined) updateData.categoria = categoria;
+    if (sku !== undefined) updateData.sku = sku;
+    if (activo !== undefined) updateData.activo = activo;
+
+    await db.collection('productos').doc(id).update(updateData);
+
+    // Actualizar variaciones si se enviaron
+    if (variaciones !== undefined) {
+      const batch = db.batch();
+      const varRef = db.collection('productos').doc(id).collection('variaciones');
+      const existentes = await varRef.get();
+
+      // Eliminar variaciones existentes
+      existentes.forEach(v => batch.delete(v.ref));
+
+      // Crear las nuevas
+      variaciones.forEach(variacion => {
+        const newRef = varRef.doc();
+        batch.set(newRef, {
+          tipo: variacion.tipo || '',
+          valor: variacion.valor || '',
+          precioAdicional: parseFloat(variacion.precioAdicional) || 0
+        });
+      });
+
+      await batch.commit();
+    }
+
+    res.json({ success: true, data: { id } });
+  } catch (error) {
+    console.error('Error en actualizarProducto:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// DELETE /api/productos/:id
+app.delete('/api/productos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.collection('productos').doc(id).update({ activo: false });
+    res.json({ success: true, data: { id } });
+  } catch (error) {
+    console.error('Error en eliminarProducto:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// =====================================================
+// INVENTARIO - ENDPOINTS FALTANTES
+// =====================================================
+
+// PUT /api/inventario/:productoId  (el frontend llama con productoId en la URL)
+app.put('/api/inventario/:productoId', async (req, res) => {
+  try {
+    const { productoId } = req.params;
+    const { variacionId, cantidad, stockMinimo, stockMaximo, ubicacion, notas } = req.body;
+
+    const querySnapshot = await db.collection('inventario')
+      .where('productoId', '==', productoId)
+      .where('variacionId', '==', variacionId || null)
+      .limit(1)
+      .get();
+
+    if (querySnapshot.empty) {
+      return res.status(404).json({ success: false, error: 'Inventario no encontrado' });
+    }
+
+    const doc = querySnapshot.docs[0];
+    const updateData = { fechaActualizacion: new Date() };
+
+    if (cantidad !== undefined) updateData.cantidad = parseFloat(cantidad);
+    if (stockMinimo !== undefined) updateData.stockMinimo = parseFloat(stockMinimo);
+    if (stockMaximo !== undefined) updateData.stockMaximo = parseFloat(stockMaximo);
+    if (ubicacion !== undefined) updateData.ubicacion = ubicacion;
+    if (notas !== undefined) updateData.notas = notas;
+
+    await doc.ref.update(updateData);
+    res.json({ success: true, data: { productoId } });
+  } catch (error) {
+    console.error('Error en actualizarInventarioPorProducto:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/inventario?productoId=xxx  (ya existe GET /api/inventario, añadir filtro)
+// Nota: se redefine con soporte para query param productoId
+// El endpoint original GET /api/inventario se modifica para soportarlo.
+
+// =====================================================
+// VENTAS - ENDPOINTS FALTANTES
+// =====================================================
+
+// PUT /api/ventas/:id
+app.put('/api/ventas/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { total, metodoPago, clienteNombre, clienteTelefono, modificadoPor } = req.body;
+
+    const updateData = {
+      fechaModificacion: new Date(),
+      modificadoPor: modificadoPor || 'system'
+    };
+    if (total !== undefined) updateData.total = parseFloat(total);
+    if (metodoPago !== undefined) updateData.metodoPago = metodoPago;
+    if (clienteNombre !== undefined) updateData.clienteNombre = clienteNombre;
+    if (clienteTelefono !== undefined) updateData.clienteTelefono = clienteTelefono;
+
+    await db.collection('ventas').doc(id).update(updateData);
+    res.json({ success: true, data: { id } });
+  } catch (error) {
+    console.error('Error en actualizarVenta:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// PUT /api/ventas/:id/items
+app.put('/api/ventas/:id/items', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { items } = req.body;
+
+    const batch = db.batch();
+    const itemsRef = db.collection('ventas').doc(id).collection('items');
+    const existentes = await itemsRef.get();
+
+    existentes.forEach(doc => batch.delete(doc.ref));
+
+    items.forEach(item => {
+      const newRef = itemsRef.doc();
+      batch.set(newRef, {
+        productoId: item.productoId,
+        productoNombre: item.productoNombre,
+        variacionId: item.variacionId || null,
+        variacion: item.variacion || '',
+        cantidad: parseInt(item.cantidad),
+        precioUnitario: parseFloat(item.precioUnitario),
+        subtotal: parseFloat(item.subtotal)
+      });
+    });
+
+    await batch.commit();
+    res.json({ success: true, data: { id } });
+  } catch (error) {
+    console.error('Error en actualizarItemsVenta:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/ventas/:id/cancelar
+app.post('/api/ventas/:id/cancelar', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { motivo, canceladoPor } = req.body;
+
+    await db.collection('ventas').doc(id).update({
+      estado: 'anulada',
+      motivoCancelacion: motivo || '',
+      canceladoPor: canceladoPor || 'system',
+      fechaCancelacion: new Date()
+    });
+
+    res.json({ success: true, data: { id } });
+  } catch (error) {
+    console.error('Error en cancelarVenta:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/ventas/:id/historial
+app.get('/api/ventas/:id/historial', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const snapshot = await db.collection('ventas').doc(id).collection('historial')
+      .orderBy('fecha', 'desc').get();
+
+    const historial = [];
+    snapshot.forEach(doc => historial.push({ id: doc.id, ...doc.data() }));
+
+    res.json({ success: true, data: historial });
+  } catch (error) {
+    console.error('Error en getHistorialVenta:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// =====================================================
+// CAJAS - ENDPOINTS FALTANTES
+// =====================================================
+
+// GET /api/cajas/:id/ventas
+app.get('/api/cajas/:id/ventas', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const snapshot = await db.collection('ventas')
+      .where('cajaId', '==', id)
+      .orderBy('fecha', 'desc')
+      .get();
+
+    const ventas = [];
+    snapshot.forEach(doc => ventas.push({ id: doc.id, ...doc.data() }));
+
+    res.json({ success: true, data: ventas });
+  } catch (error) {
+    console.error('Error en getVentasDeCaja:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/cajas/cierres?turnoId=xxx
+app.get('/api/cajas/cierres', async (req, res) => {
+  try {
+    const { turnoId, empleado } = req.query;
+
+    if (!turnoId) {
+      return res.status(400).json({ success: false, error: 'Se requiere turnoId' });
+    }
+
+    let query = db.collection('cierresCaja').where('turnoId', '==', turnoId);
+    if (empleado) query = query.where('empleado', '==', empleado);
+
+    const snapshot = await query.get();
+    const cierres = [];
+    snapshot.forEach(doc => cierres.push({ id: doc.id, ...doc.data() }));
+
+    res.json({ success: true, data: cierres });
+  } catch (error) {
+    console.error('Error en getCierresCaja:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// =====================================================
+// TURNOS - ENDPOINTS FALTANTES
+// =====================================================
+
+// GET /api/turnos/:id/ventas
+app.get('/api/turnos/:id/ventas', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const snapshot = await db.collection('ventas')
+      .where('turnoId', '==', id)
+      .orderBy('fecha', 'desc')
+      .get();
+
+    const ventas = [];
+    snapshot.forEach(doc => ventas.push({ id: doc.id, ...doc.data() }));
+
+    res.json({ success: true, data: ventas });
+  } catch (error) {
+    console.error('Error en getVentasDelTurno:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// =====================================================
+// DEUDORES - ENDPOINTS FALTANTES
+// =====================================================
+
+// GET /api/deudores/:id
+app.get('/api/deudores/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const doc = await db.collection('deudores').doc(id).get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ success: false, error: 'Deudor no encontrado' });
+    }
+
+    res.json({ success: true, data: { id: doc.id, ...doc.data() } });
+  } catch (error) {
+    console.error('Error en getDeudorPorId:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

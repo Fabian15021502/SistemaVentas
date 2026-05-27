@@ -1,58 +1,35 @@
 // src/services/facturasService.js
-// REEMPLAZAR COMPLETAMENTE
-
-import apiRequest from '../config/googleSheets';
+import api from './apiClient';
 
 const facturasService = {
-  
+
   /**
    * Obtener las últimas N facturas de un empleado
    */
   async obtenerUltimasFacturas(empleadoId, limite = 3) {
     try {
       console.log('📋 Obteniendo facturas del empleado:', empleadoId);
-      
-      // Obtener todas las ventas
-      const response = await apiRequest('getVentas');
+
+      const params = new URLSearchParams({ empleadoId, limit: limite });
+      const response = await api.get(`/api/ventas?${params}`);
       const ventas = response.data || [];
-      
-      console.log('Total ventas en sistema:', ventas.length);
-      
-      // Filtrar por empleado y ordenar por fecha descendente
-      const ventasEmpleado = ventas
-        .filter(v => {
-          // Comparar empleadoId de forma flexible
-          const ventaEmpleado = v.empleadoId || '';
-          return ventaEmpleado === empleadoId || 
-                 ventaEmpleado.includes(empleadoId) ||
-                 empleadoId.includes(ventaEmpleado);
-        })
-        .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
-        .slice(0, limite);
-      
-      console.log('Ventas del empleado:', ventasEmpleado.length);
-      
-      // Obtener detalles de cada venta
+
+      console.log('Ventas del empleado:', ventas.length);
+
+      // Obtener detalles (items) de cada venta
       const facturasCompletas = await Promise.all(
-        ventasEmpleado.map(async (venta) => {
+        ventas.map(async (venta) => {
           try {
-            const detallesResponse = await apiRequest('getVentaDetalle', { id: venta.id });
-            const detalles = detallesResponse.data || [];
-            
-            return {
-              ...venta,
-              items: detalles
-            };
+            const detalleResponse = await api.get(`/api/ventas/${venta.id}`);
+            const items = detalleResponse.data?.items || [];
+            return { ...venta, items };
           } catch (error) {
             console.error(`Error al obtener detalle de venta ${venta.id}:`, error);
-            return {
-              ...venta,
-              items: []
-            };
+            return { ...venta, items: [] };
           }
         })
       );
-      
+
       console.log('✅ Facturas completas:', facturasCompletas.length);
       return facturasCompletas;
     } catch (error) {
@@ -66,20 +43,20 @@ const facturasService = {
    */
   async actualizarVenta(ventaId, datosActualizados) {
     try {
-      if (!ventaId) {
-        throw new Error('ID de venta no válido');
-      }
+      if (!ventaId) throw new Error('ID de venta no válido');
 
       console.log('📝 Actualizando venta:', ventaId);
 
-      const response = await apiRequest('actualizarVenta', {
-        ventaId: parseInt(ventaId),
-        total: datosActualizados.total ? parseFloat(datosActualizados.total) : undefined,
-        metodoPago: datosActualizados.metodoPago,
-        clienteNombre: datosActualizados.clienteNombre,
-        clienteTelefono: datosActualizados.clienteTelefono,
+      const body = {
         modificadoPor: datosActualizados.modificadoPor || 'system'
-      });
+      };
+
+      if (datosActualizados.total !== undefined) body.total = parseFloat(datosActualizados.total);
+      if (datosActualizados.metodoPago) body.metodoPago = datosActualizados.metodoPago;
+      if (datosActualizados.clienteNombre) body.clienteNombre = datosActualizados.clienteNombre;
+      if (datosActualizados.clienteTelefono !== undefined) body.clienteTelefono = datosActualizados.clienteTelefono;
+
+      const response = await api.put(`/api/ventas/${ventaId}`, body);
 
       if (!response.success) {
         throw new Error(response.error || 'Error al actualizar venta');
@@ -97,18 +74,15 @@ const facturasService = {
    */
   async actualizarItemsVenta(ventaId, nuevosItems) {
     try {
-      if (!ventaId) {
-        throw new Error('ID de venta no válido');
-      }
+      if (!ventaId) throw new Error('ID de venta no válido');
       if (!nuevosItems || nuevosItems.length === 0) {
         throw new Error('Debe proporcionar al menos un item');
       }
 
       console.log('📦 Actualizando items de venta:', ventaId);
 
-      const response = await apiRequest('actualizarItemsVenta', {
-        ventaId: parseInt(ventaId),
-        items: JSON.stringify(nuevosItems),
+      const response = await api.put(`/api/ventas/${ventaId}/items`, {
+        items: nuevosItems,
         modificadoPor: 'system'
       });
 
@@ -128,17 +102,14 @@ const facturasService = {
    */
   async cancelarVenta(ventaId, motivo) {
     try {
-      if (!ventaId) {
-        throw new Error('ID de venta no válido');
-      }
+      if (!ventaId) throw new Error('ID de venta no válido');
       if (!motivo || motivo.trim() === '') {
         throw new Error('Debe proporcionar un motivo de cancelación');
       }
 
       console.log('❌ Cancelando venta:', ventaId);
 
-      const response = await apiRequest('cancelarVenta', {
-        ventaId: parseInt(ventaId),
+      const response = await api.post(`/api/ventas/${ventaId}/cancelar`, {
         motivo: motivo.trim(),
         canceladoPor: 'system'
       });
@@ -159,9 +130,7 @@ const facturasService = {
    */
   async obtenerHistorialModificaciones(ventaId) {
     try {
-      const response = await apiRequest('getHistorialVenta', {
-        ventaId: parseInt(ventaId)
-      });
+      const response = await api.get(`/api/ventas/${ventaId}/historial`);
       return response.data || [];
     } catch (error) {
       console.error('Error al obtener historial:', error);

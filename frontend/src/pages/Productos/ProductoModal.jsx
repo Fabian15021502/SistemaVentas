@@ -43,7 +43,7 @@ const ProductoModal = ({ isOpen, onClose, onSave, producto = null, categorias = 
     onSave({
       ...formData,
       precioBase: parseFloat(formData.precioBase),
-      categoriaId: parseInt(formData.categoriaId)
+      categoriaId: formData.categoriaId
     });
     handleClose();
   };

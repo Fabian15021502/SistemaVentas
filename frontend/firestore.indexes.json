@@ -1,0 +1,94 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "cajas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "turnoId",  "order": "ASCENDING" },
+        { "fieldPath": "empleado", "order": "ASCENDING" },
+        { "fieldPath": "estado",   "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cajas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "turnoId", "order": "ASCENDING" },
+        { "fieldPath": "estado",  "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "turnos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "estado",      "order": "ASCENDING"  },
+        { "fieldPath": "fechaInicio", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "inventario",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "productoId",  "order": "ASCENDING" },
+        { "fieldPath": "variacionId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "ventas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "turnoId", "order": "ASCENDING"  },
+        { "fieldPath": "fecha",   "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "ventas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "cajaId", "order": "ASCENDING"  },
+        { "fieldPath": "fecha",  "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "deudas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "deudorId", "order": "ASCENDING"  },
+        { "fieldPath": "fecha",    "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "deudas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "deudorId", "order": "ASCENDING" },
+        { "fieldPath": "estado",   "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "abonos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "deudaId", "order": "ASCENDING"  },
+        { "fieldPath": "fecha",   "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "abonos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "deudorId", "order": "ASCENDING"  },
+        { "fieldPath": "fecha",    "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "categorias",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "activo", "order": "ASCENDING" },
+        { "fieldPath": "nombre", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

@@ -1,13 +1,14 @@
 // src/services/productosService.js
-import apiRequest from '../config/googleSheets';
+import api from './apiClient';
 
 const productosService = {
+
   // ==================== CATEGORÍAS ====================
 
   async obtenerCategorias() {
     try {
       console.log('📋 Obteniendo categorías...');
-      const response = await apiRequest('getCategorias');
+      const response = await api.get('/api/categorias');
       return response.data || [];
     } catch (error) {
       console.error('Error al obtener categorías:', error);
@@ -23,7 +24,7 @@ const productosService = {
 
       console.log('📁 Creando categoría:', categoria.nombre);
 
-      const response = await apiRequest('crearCategoria', {
+      const response = await api.post('/api/categorias', {
         nombre: categoria.nombre.trim(),
         descripcion: categoria.descripcion?.trim() || ''
       });
@@ -38,16 +39,13 @@ const productosService = {
 
   async actualizarCategoria(id, datos) {
     try {
-      if (!id) {
-        throw new Error('ID de categoría no válido');
-      }
+      if (!id) throw new Error('ID de categoría no válido');
 
-      const response = await apiRequest('actualizarCategoria', {
-        id,
+      const response = await api.put(`/api/categorias/${id}`, {
         nombre: datos.nombre?.trim(),
         descripcion: datos.descripcion?.trim()
       });
-      
+
       return response.data;
     } catch (error) {
       console.error('Error al actualizar categoría:', error);
@@ -57,11 +55,9 @@ const productosService = {
 
   async eliminarCategoria(id) {
     try {
-      if (!id) {
-        throw new Error('ID de categoría no válido');
-      }
+      if (!id) throw new Error('ID de categoría no válido');
 
-      await apiRequest('eliminarCategoria', { id });
+      await api.delete(`/api/categorias/${id}`);
       return true;
     } catch (error) {
       console.error('Error al eliminar categoría:', error);
@@ -74,7 +70,7 @@ const productosService = {
   async obtenerProductos() {
     try {
       console.log('📦 Obteniendo productos...');
-      const response = await apiRequest('getProductos');
+      const response = await api.get('/api/productos');
       return response.data || [];
     } catch (error) {
       console.error('Error al obtener productos:', error);
@@ -84,17 +80,11 @@ const productosService = {
 
   async obtenerProductoPorId(id) {
     try {
-      const productos = await this.obtenerProductos();
-      const producto = productos.find(p => p.id === parseInt(id));
-
-      if (!producto) {
-        throw new Error('Producto no encontrado');
-      }
-
-      return producto;
+      const response = await api.get(`/api/productos/${id}`);
+      return response.data;
     } catch (error) {
       console.error('Error al obtener producto:', error);
-      throw error;
+      throw new Error('Producto no encontrado');
     }
   },
 
@@ -103,20 +93,27 @@ const productosService = {
       if (!producto.nombre || producto.nombre.trim() === '') {
         throw new Error('El nombre del producto es obligatorio');
       }
-      if (!producto.categoriaId) {
-        throw new Error('Debe seleccionar una categoría');
+      if (!producto.precio && !producto.precioBase) {
+        throw new Error('El precio debe ser mayor a 0');
       }
-      if (!producto.precioBase || producto.precioBase <= 0) {
+
+      const precio = parseFloat(producto.precio || producto.precioBase);
+      if (precio <= 0) {
         throw new Error('El precio debe ser mayor a 0');
       }
 
       console.log('🛍️ Creando producto:', producto.nombre);
 
-      const response = await apiRequest('crearProducto', {
+      const response = await api.post('/api/productos', {
         nombre: producto.nombre.trim(),
-        categoriaId: parseInt(producto.categoriaId),
-        precioBase: parseFloat(producto.precioBase),
-        variaciones: JSON.stringify(producto.variaciones || [])
+        descripcion: producto.descripcion?.trim() || '',
+        precio,
+        precioBase: precio,
+        categoria: producto.categoria || 'General',
+        categoriaId: producto.categoriaId || '',
+        sku: producto.sku || '',
+        variaciones: producto.variaciones || [],
+        activo: true
       });
 
       console.log('✅ Producto creado');
@@ -129,19 +126,20 @@ const productosService = {
 
   async actualizarProducto(id, datos) {
     try {
-      if (!id) {
-        throw new Error('ID de producto no válido');
-      }
+      if (!id) throw new Error('ID de producto no válido');
 
-      const params = { id: parseInt(id) };
+      const body = { id };
+      if (datos.nombre) body.nombre = datos.nombre.trim();
+      if (datos.descripcion !== undefined) body.descripcion = datos.descripcion?.trim();
+      if (datos.precio !== undefined) body.precio = parseFloat(datos.precio);
+      if (datos.precioBase !== undefined) body.precioBase = parseFloat(datos.precioBase);
+      if (datos.categoria !== undefined) body.categoria = datos.categoria;
+      if (datos.categoriaId !== undefined) body.categoriaId = datos.categoriaId;
+      if (datos.sku !== undefined) body.sku = datos.sku;
+      if (datos.variaciones !== undefined) body.variaciones = datos.variaciones;
+      if (datos.activo !== undefined) body.activo = datos.activo;
 
-      if (datos.nombre) params.nombre = datos.nombre.trim();
-      if (datos.categoriaId) params.categoriaId = parseInt(datos.categoriaId);
-      if (datos.precioBase !== undefined) params.precioBase = parseFloat(datos.precioBase);
-      if (datos.variaciones) params.variaciones = JSON.stringify(datos.variaciones);
-
-      const response = await apiRequest('actualizarProducto', params);
-      
+      const response = await api.put(`/api/productos/${id}`, body);
       return response.data;
     } catch (error) {
       console.error('Error al actualizar producto:', error);
@@ -151,11 +149,9 @@ const productosService = {
 
   async eliminarProducto(id) {
     try {
-      if (!id) {
-        throw new Error('ID de producto no válido');
-      }
+      if (!id) throw new Error('ID de producto no válido');
 
-      await apiRequest('eliminarProducto', { id });
+      await api.delete(`/api/productos/${id}`);
       return true;
     } catch (error) {
       console.error('Error al eliminar producto:', error);
@@ -169,13 +165,8 @@ const productosService = {
         return await this.obtenerProductos();
       }
 
-      const productos = await this.obtenerProductos();
-      const terminoLower = termino.toLowerCase().trim();
-
-      return productos.filter(p =>
-        p.nombre.toLowerCase().includes(terminoLower) ||
-        p.id.toString().includes(termino)
-      );
+      const response = await api.get(`/api/productos?search=${encodeURIComponent(termino.trim())}`);
+      return response.data || [];
     } catch (error) {
       console.error('Error al buscar productos:', error);
       throw error;
@@ -184,8 +175,8 @@ const productosService = {
 
   async obtenerProductosPorCategoria(categoriaId) {
     try {
-      const productos = await this.obtenerProductos();
-      return productos.filter(p => p.categoriaId === parseInt(categoriaId));
+      const response = await api.get(`/api/productos?categoriaId=${categoriaId}`);
+      return response.data || [];
     } catch (error) {
       console.error('Error al filtrar productos por categoría:', error);
       throw error;
@@ -196,18 +187,16 @@ const productosService = {
 
   calcularPrecioConVariacion(producto, variacionId) {
     if (!variacionId || !producto.variaciones) {
-      return producto.precioBase;
+      return producto.precio || producto.precioBase;
     }
 
-    const variacion = producto.variaciones.find(
-      v => v.id === parseInt(variacionId)
-    );
-    
+    const variacion = producto.variaciones.find(v => v.id === variacionId);
+
     if (!variacion) {
-      return producto.precioBase;
+      return producto.precio || producto.precioBase;
     }
 
-    return producto.precioBase + (variacion.precioAdicional || 0);
+    return (producto.precio || producto.precioBase) + (variacion.precioAdicional || 0);
   }
 };
 

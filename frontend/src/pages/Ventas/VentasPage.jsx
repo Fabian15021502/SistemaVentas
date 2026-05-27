@@ -112,10 +112,14 @@ const VentasPage = () => {
   };
 
   const obtenerStockDisponible = (productoId, variacionId) => {
-    const itemInv = inventario.find(inv => 
-      parseInt(inv.productoId) === parseInt(productoId) && 
-      (variacionId ? parseInt(inv.variacionId) === parseInt(variacionId) : !inv.variacionId)
-    );
+    const itemInv = inventario.find(inv => {
+      const mismoProducto = String(inv.productoId) === String(productoId);
+      if (!mismoProducto) return false;
+      if (variacionId) {
+        return String(inv.variacionId) === String(variacionId);
+      }
+      return !inv.variacionId || inv.variacionId === '' || inv.variacionId === null;
+    });
     return itemInv ? parseFloat(itemInv.cantidad) : 0;
   };
 

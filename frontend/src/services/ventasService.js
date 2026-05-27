@@ -1,54 +1,50 @@
 // src/services/ventasService.js
-// REEMPLAZAR COMPLETAMENTE
-
-import apiRequest from '../config/googleSheets';
+import api from './apiClient';
 
 const ventasService = {
-  
+
   /**
    * Validar stock disponible antes de registrar venta
    */
   async validarStockDisponible(items) {
     try {
-      // Importar inventarioService
       const inventarioService = (await import('./inventarioService')).default;
       const inventario = await inventarioService.obtenerInventario();
-      
+
       const erroresStock = [];
-      
+
       for (const item of items) {
-        const productoId = parseInt(item.productoId);
-        const variacionId = item.variacionId ? parseInt(item.variacionId) : null;
+        const productoId = item.productoId;
+        const variacionId = item.variacionId || null;
         const cantidadSolicitada = parseInt(item.cantidad);
-        
-        // Buscar en inventario
-        const itemInventario = inventario.find(inv => 
-          parseInt(inv.productoId) === productoId && 
-          (variacionId ? parseInt(inv.variacionId) === variacionId : !inv.variacionId)
+
+        const itemInventario = inventario.find(inv =>
+          inv.productoId === productoId &&
+          (variacionId ? inv.variacionId === variacionId : !inv.variacionId)
         );
-        
+
         if (!itemInventario) {
           erroresStock.push({
             producto: item.productoNombre,
-            variacion: item.variacionValor,
+            variacion: item.variacion || item.variacionValor,
             error: 'No hay inventario registrado'
           });
           continue;
         }
-        
+
         const stockDisponible = parseFloat(itemInventario.cantidad) || 0;
-        
+
         if (stockDisponible < cantidadSolicitada) {
           erroresStock.push({
             producto: item.productoNombre,
-            variacion: item.variacionValor,
+            variacion: item.variacion || item.variacionValor,
             solicitado: cantidadSolicitada,
             disponible: stockDisponible,
             error: `Stock insuficiente (disponible: ${stockDisponible})`
           });
         }
       }
-      
+
       return {
         valido: erroresStock.length === 0,
         errores: erroresStock
@@ -60,11 +56,10 @@ const ventasService = {
   },
 
   /**
-   * Registrar venta con validación de stock
+   * Registrar nueva venta con validación de stock
    */
   async registrarVenta(venta) {
     try {
-      // Validaciones básicas
       if (!venta.items || venta.items.length === 0) {
         throw new Error('Debe agregar al menos un producto a la venta');
       }
@@ -76,18 +71,16 @@ const ventasService = {
       }
 
       console.log('📝 Validando stock antes de registrar venta...');
-      
-      // 🔧 VALIDACIÓN DE STOCK
+
       const validacion = await this.validarStockDisponible(venta.items);
-      
+
       if (!validacion.valido) {
-        const erroresTexto = validacion.errores.map(e => 
-          `${e.producto} ${e.variacion || ''}: ${e.error}`
-        ).join('\n');
-        
+        const erroresTexto = validacion.errores
+          .map(e => `${e.producto} ${e.variacion || ''}: ${e.error}`)
+          .join('\n');
         throw new Error(`Stock insuficiente:\n${erroresTexto}`);
       }
-      
+
       console.log('✅ Stock validado correctamente');
       console.log('📝 Registrando venta:', {
         total: venta.total,
@@ -95,25 +88,24 @@ const ventasService = {
         itemsCount: venta.items.length
       });
 
-      // Preparar items como JSON string
-      const itemsJson = JSON.stringify(venta.items.map(item => ({
-        productoId: parseInt(item.productoId),
-        productoNombre: item.productoNombre,
-        variacionId: item.variacionId || '',
-        variacion: item.variacion || '',
-        cantidad: parseInt(item.cantidad),
-        precioUnitario: parseFloat(item.precioUnitario),
-        subtotal: parseFloat(item.subtotal)
-      })));
-
-      const response = await apiRequest('registrarVenta', {
+      const datosVenta = {
         empleadoId: venta.empleadoId || 'system',
-        total: parseFloat(venta.total),
-        metodoPago: venta.metodoPago,
         clienteNombre: venta.clienteNombre?.trim() || 'Cliente General',
         clienteTelefono: venta.clienteTelefono ? String(venta.clienteTelefono).trim() : '',
-        items: itemsJson
-      });
+        metodoPago: venta.metodoPago.toLowerCase(),
+        total: parseFloat(venta.total),
+        items: venta.items.map(item => ({
+          productoId: item.productoId,
+          productoNombre: item.productoNombre,
+          variacionId: item.variacionId || '',
+          variacion: item.variacion || '',
+          cantidad: parseInt(item.cantidad),
+          precioUnitario: parseFloat(item.precioUnitario),
+          subtotal: parseFloat(item.subtotal || item.cantidad * item.precioUnitario)
+        }))
+      };
+
+      const response = await api.post('/api/ventas', datosVenta);
 
       if (!response.success) {
         throw new Error(response.error || 'Error al registrar venta');
@@ -129,7 +121,11 @@ const ventasService = {
 
   async obtenerVentas(filtros = {}) {
     try {
-      const response = await apiRequest('getVentas', filtros);
+      const params = new URLSearchParams();
+      if (filtros.limit) params.append('limit', filtros.limit);
+      if (filtros.empleadoId) params.append('empleadoId', filtros.empleadoId);
+
+      const response = await api.get(`/api/ventas?${params}`);
       return response.data || [];
     } catch (error) {
       console.error('Error al obtener ventas:', error);
@@ -139,15 +135,10 @@ const ventasService = {
 
   async obtenerDetalleVenta(ventaId) {
     try {
-      if (!ventaId) {
-        throw new Error('ID de venta no válido');
-      }
+      if (!ventaId) throw new Error('ID de venta no válido');
 
-      const response = await apiRequest('getVentaDetalle', {
-        id: ventaId
-      });
-      
-      return response.data || [];
+      const response = await api.get(`/api/ventas/${ventaId}`);
+      return response.data?.items || response.data || [];
     } catch (error) {
       console.error('Error al obtener detalle de venta:', error);
       throw error;
@@ -156,39 +147,28 @@ const ventasService = {
 
   async obtenerVentaPorId(ventaId) {
     try {
-      const ventas = await this.obtenerVentas();
-      const venta = ventas.find(v => v.id === parseInt(ventaId));
-      
-      if (!venta) {
-        throw new Error('Venta no encontrada');
-      }
-
-      const detalles = await this.obtenerDetalleVenta(ventaId);
-      
-      return {
-        ...venta,
-        items: detalles
-      };
+      const response = await api.get(`/api/ventas/${ventaId}`);
+      return response.data;
     } catch (error) {
       console.error('Error al obtener venta completa:', error);
-      throw error;
+      throw new Error('Venta no encontrada');
     }
+  },
+
+  // Alias para compatibilidad con reportesService
+  async obtenerVentaDetalle(ventaId) {
+    return this.obtenerDetalleVenta(ventaId);
   },
 
   async obtenerVentasPorRangoFechas(fechaInicio, fechaFin) {
     try {
-      const ventas = await this.obtenerVentas();
-      
-      const inicio = new Date(fechaInicio);
-      inicio.setHours(0, 0, 0, 0);
-      
-      const fin = new Date(fechaFin);
-      fin.setHours(23, 59, 59, 999);
-      
-      return ventas.filter(venta => {
-        const fechaVenta = new Date(venta.fecha);
-        return fechaVenta >= inicio && fechaVenta <= fin;
+      const params = new URLSearchParams({
+        desde: fechaInicio,
+        hasta: fechaFin
       });
+
+      const response = await api.get(`/api/ventas?${params}`);
+      return response.data || [];
     } catch (error) {
       console.error('Error al obtener ventas por rango:', error);
       throw error;
@@ -197,20 +177,21 @@ const ventasService = {
 
   async obtenerVentasDelDia(fecha = null) {
     try {
-      const fechaConsulta = fecha ? new Date(fecha) : new Date();
-      fechaConsulta.setHours(0, 0, 0, 0);
-      
-      const ventas = await this.obtenerVentas();
-      
-      return ventas.filter(venta => {
-        const fechaVenta = new Date(venta.fecha);
-        fechaVenta.setHours(0, 0, 0, 0);
-        return fechaVenta.getTime() === fechaConsulta.getTime();
-      });
+      const fechaConsulta = fecha
+        ? new Date(fecha).toISOString().split('T')[0]
+        : new Date().toISOString().split('T')[0];
+
+      const params = new URLSearchParams({ desde: fechaConsulta, hasta: fechaConsulta });
+      const response = await api.get(`/api/ventas?${params}`);
+      return response.data || [];
     } catch (error) {
       console.error('Error al obtener ventas del día:', error);
       throw error;
     }
+  },
+
+  calcularTotal(items) {
+    return items.reduce((sum, item) => sum + (item.cantidad * item.precioUnitario), 0);
   },
 
   async calcularTotalVentas(ventas) {
@@ -225,30 +206,8 @@ const ventasService = {
 
   async obtenerProductosMasVendidos(limite = 10) {
     try {
-      const ventas = await this.obtenerVentas();
-      const productosVendidos = {};
-
-      for (const venta of ventas) {
-        const detalles = await this.obtenerDetalleVenta(venta.id);
-        
-        detalles.forEach(detalle => {
-          const key = detalle.productoId;
-          if (!productosVendidos[key]) {
-            productosVendidos[key] = {
-              productoId: detalle.productoId,
-              nombre: detalle.productoNombre,
-              cantidad: 0,
-              total: 0
-            };
-          }
-          productosVendidos[key].cantidad += detalle.cantidad;
-          productosVendidos[key].total += detalle.subtotal;
-        });
-      }
-
-      return Object.values(productosVendidos)
-        .sort((a, b) => b.cantidad - a.cantidad)
-        .slice(0, limite);
+      const response = await api.get(`/api/dashboard/stats?limit=${limite}`);
+      return response.data?.productosMasVendidos || [];
     } catch (error) {
       console.error('Error al obtener productos más vendidos:', error);
       throw error;
