@@ -103,33 +103,38 @@ const DeudoresPage = () => {
   };
 
   const procesarAbono = async (datos) => {
-    try {
-      // Buscar la primera deuda pendiente del deudor
-      const deudasDeudor = await deudoresService.obtenerDeudasPorDeudor(datos.deudorId);
-      const deudaPendiente = deudasDeudor.find(d => d.estado === 'pendiente');
+  try {
+    console.log("🎯 Datos recibidos en procesarAbono:", datos); // 🔍 AGREGAR ESTO
+    
+    // Buscar la primera deuda pendiente del deudor
+    const deudasDeudor = await deudoresService.obtenerDeudasPorDeudor(datos.deudorId);
+    const deudaPendiente = deudasDeudor.find(d => d.estado === 'pendiente');
 
-      if (!deudaPendiente) {
-        throw new Error('No se encontró una deuda pendiente');
-      }
-
-      await deudoresService.registrarAbono({
-        deudaId: deudaPendiente.id,
-        monto: datos.monto,
-        metodoPago: datos.metodoPago,
-        notas: datos.nota || '',
-        registradoPor: user.uid || user.email
-      });
-
-      // Recargar datos
-      await cargarDeudores();
-      setMostrarAbonoModal(false);
-      setDeudorParaAbono(null);
-    } catch (error) {
-      console.error('Error al procesar abono:', error);
-      alert(error.message);
-      throw error;
+    if (!deudaPendiente) {
+      throw new Error('No se encontró una deuda pendiente');
     }
-  };
+
+    console.log("🎯 Deuda pendiente encontrada:", deudaPendiente); // 🔍 AGREGAR ESTO
+
+    await deudoresService.registrarAbono({
+      deudorId: datos.deudorId,  // ✅ Asegúrate que esto esté presente
+      deudaId: deudaPendiente.id,
+      monto: datos.monto,
+      metodoPago: datos.metodoPago,
+      notas: datos.nota || '',
+      registradoPor: user.uid || user.email
+    });
+
+    // Recargar datos
+    await cargarDeudores();
+    setMostrarAbonoModal(false);
+    setDeudorParaAbono(null);
+  } catch (error) {
+    console.error('Error al procesar abono:', error);
+    alert(error.message);
+    throw error;
+  }
+};
 
   if (loading) {
     return (

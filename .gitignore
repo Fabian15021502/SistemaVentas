@@ -24,3 +24,7 @@ Thumbs.db
 .idea/
 *.swp
 *.swo 
+
+# Credenciales de Google y Firebase
+backend-api/firebase-service-account.json
+backend-api/google-service-account.json

@@ -1,5 +1,9 @@
 // src/pages/Ventas/VentasPage.jsx
-// VERSIÓN COMPLETA CORREGIDA - COPIAR Y PEGAR TODO
+// VERSIÓN COMPLETA CON TODAS LAS CORRECCIONES
+// ✅ Validación de turno y caja
+// ✅ Validación de stock
+// ✅ Abono inicial en ventas fiadas
+// ✅ Mostrar saldo de deudores en sugerencias
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
@@ -18,28 +22,29 @@ const VentasPage = () => {
 
   const [carrito, setCarrito] = useState([]);
   const [metodoPago, setMetodoPago] = useState('efectivo');
-  const [clienteFiado, setClienteFiado] = useState({ nombre: '', telefono: '' });
+  const [clienteFiado, setClienteFiado] = useState({ 
+    nombre: '', 
+    telefono: '', 
+    abonoInicial: 0  // 🔧 NUEVO
+  });
   const [ventaCompletada, setVentaCompletada] = useState(null);
   const [detallesVenta, setDetallesVenta] = useState([]);
   const [deudoresExistentes, setDeudoresExistentes] = useState([]);
   const [mostrarSugerencias, setMostrarSugerencias] = useState(false);
   
-  // 🔧 NUEVO: Estados para validación de turno/caja
   const [turnoActivo, setTurnoActivo] = useState(null);
   const [cajaActiva, setCajaActiva] = useState(null);
   const [validandoSistema, setValidandoSistema] = useState(true);
   const [inventario, setInventario] = useState([]);
 
-  // Variable derivada
   const mostrarFormCliente = metodoPago === 'fiado';
 
-  // 🔧 NUEVO: Validar turno y caja al cargar
+  // Validar turno y caja al cargar
   useEffect(() => {
     const validarSistema = async () => {
       try {
         setValidandoSistema(true);
         
-        // Verificar turno activo
         const turno = await turnoService.obtenerTurnoActivo();
         setTurnoActivo(turno);
         
@@ -49,7 +54,6 @@ const VentasPage = () => {
           return;
         }
         
-        // Verificar caja activa del empleado
         const caja = await turnoService.obtenerCajaActiva(turno.id, user.email);
         setCajaActiva(caja);
         
@@ -59,7 +63,6 @@ const VentasPage = () => {
           return;
         }
         
-        // Cargar inventario
         const inv = await inventarioService.obtenerInventario();
         setInventario(inv);
         
@@ -94,7 +97,6 @@ const VentasPage = () => {
     cargarDeudores();
   }, [metodoPago]);
 
-  // Filtrar deudores según lo que escribe el usuario
   const deudoresFiltrados = deudoresExistentes.filter(d => 
     clienteFiado.nombre.trim() &&
     d.nombre.toLowerCase().includes(clienteFiado.nombre.toLowerCase())
@@ -103,12 +105,12 @@ const VentasPage = () => {
   const seleccionarDeudor = (deudor) => {
     setClienteFiado({
       nombre: deudor.nombre,
-      telefono: String(deudor.telefono || '')
+      telefono: String(deudor.telefono || ''),
+      abonoInicial: 0
     });
     setMostrarSugerencias(false);
   };
 
-  // 🔧 NUEVO: Función para obtener stock disponible
   const obtenerStockDisponible = (productoId, variacionId) => {
     const itemInv = inventario.find(inv => 
       parseInt(inv.productoId) === parseInt(productoId) && 
@@ -118,7 +120,6 @@ const VentasPage = () => {
   };
 
   const agregarAlCarrito = (producto) => {
-    // 🔧 VALIDAR STOCK antes de agregar
     const stockDisponible = obtenerStockDisponible(producto.productoId, producto.variacionId);
     
     if (stockDisponible === 0) {
@@ -133,7 +134,6 @@ const VentasPage = () => {
     );
 
     if (existe) {
-      // Verificar si al incrementar no excede el stock
       const nuevaCantidad = existe.cantidad + 1;
       if (nuevaCantidad > stockDisponible) {
         alert(`⚠️ Stock insuficiente. Disponible: ${stockDisponible} unidades`);
@@ -153,7 +153,7 @@ const VentasPage = () => {
       const nuevoItem = {
         id: Date.now() + Math.random(),
         ...producto,
-        stockDisponible: stockDisponible, // 🔧 Guardar stock para referencia
+        stockDisponible: stockDisponible,
         subtotal: producto.precioUnitario
       };
       setCarrito([...carrito, nuevoItem]);
@@ -169,7 +169,6 @@ const VentasPage = () => {
     const item = carrito.find(i => i.id === itemId);
     if (!item) return;
     
-    // 🔧 VALIDAR que no exceda el stock
     const stockDisponible = obtenerStockDisponible(item.productoId, item.variacionId);
     
     if (nuevaCantidad > stockDisponible) {
@@ -200,7 +199,7 @@ const VentasPage = () => {
     if (confirm('¿Estás seguro de limpiar el carrito?')) {
       setCarrito([]);
       setMetodoPago('efectivo');
-      setClienteFiado({ nombre: '', telefono: '' });
+      setClienteFiado({ nombre: '', telefono: '', abonoInicial: 0 });
     }
   };
 
@@ -218,6 +217,17 @@ const VentasPage = () => {
         alert('Por favor ingresa el nombre y teléfono del cliente');
         return false;
       }
+      
+      // 🔧 Validar abono inicial
+      const abonoInicial = parseFloat(clienteFiado.abonoInicial) || 0;
+      if (abonoInicial < 0) {
+        alert('El abono no puede ser negativo');
+        return false;
+      }
+      if (abonoInicial > calcularTotal()) {
+        alert('El abono no puede ser mayor que el total de la venta');
+        return false;
+      }
     }
 
     return true;
@@ -230,7 +240,7 @@ const VentasPage = () => {
       const total = calcularTotal();
       
       const venta = {
-        empleadoId: user?.email || 'system',  // 🔧 CORRECCIÓN: Usar email
+        empleadoId: user?.email || 'system',
         total,
         metodoPago,
         clienteNombre: metodoPago === 'fiado' ? String(clienteFiado.nombre).trim() : 'Cliente General',
@@ -248,12 +258,11 @@ const VentasPage = () => {
 
       console.log('💰 Registrando venta:', venta);
 
-      // Registrar venta (ya incluye validación de stock)
       const ventaRegistrada = await ventasService.registrarVenta(venta);
 
       console.log('✅ Venta registrada:', ventaRegistrada);
 
-      // Si es venta fiada, crear/buscar deudor y registrar deuda
+      // 🔧 MEJORADO: Procesar venta fiada con abono inicial
       if (metodoPago === 'fiado') {
         try {
           console.log('💳 Procesando venta fiada...');
@@ -283,12 +292,26 @@ const VentasPage = () => {
           }
           
           console.log('💰 Registrando deuda...');
-          await deudoresService.crearDeuda({
+          const deudaCreada = await deudoresService.crearDeuda({
             deudorId: deudor.id,
             ventaId: ventaRegistrada.id,
             monto: total
           });
           console.log('✅ Deuda registrada');
+          
+          // 🔧 NUEVO: Procesar abono inicial si existe
+          const abonoInicial = parseFloat(clienteFiado.abonoInicial) || 0;
+          if (abonoInicial > 0 && abonoInicial <= total) {
+            console.log('💵 Procesando abono inicial:', abonoInicial);
+            await deudoresService.registrarAbono({
+              deudorId: deudor.id,
+              deudaId: deudaCreada.id,
+              monto: abonoInicial,
+              observaciones: 'Abono inicial en la venta',
+              registradoPor: user?.email || 'system'
+            });
+            console.log('✅ Abono inicial registrado');
+          }
           
         } catch (deudaError) {
           console.error('⚠️ Error al procesar deuda:', deudaError);
@@ -296,10 +319,9 @@ const VentasPage = () => {
         }
       }
 
-      // 🔧 CORRECCIÓN: Guardar items ANTES de mostrar ticket
-      const itemsVenta = [...carrito]; // Copiar carrito antes de limpiarlo
+      // Guardar items ANTES de mostrar ticket
+      const itemsVenta = [...carrito];
       
-      // Mostrar ticket
       setVentaCompletada({
         id: ventaRegistrada.id,
         fechaHora: ventaRegistrada.fecha,
@@ -311,14 +333,12 @@ const VentasPage = () => {
         } : null
       });
       
-      setDetallesVenta(itemsVenta); // Usar la copia guardada
+      setDetallesVenta(itemsVenta);
 
-      // Limpiar carrito
       setCarrito([]);
       setMetodoPago('efectivo');
-      setClienteFiado({ nombre: '', telefono: '' });
+      setClienteFiado({ nombre: '', telefono: '', abonoInicial: 0 });
       
-      // 🔧 Recargar inventario después de la venta
       const inv = await inventarioService.obtenerInventario();
       setInventario(inv);
       
@@ -328,7 +348,6 @@ const VentasPage = () => {
     }
   };
 
-  // 🔧 Mostrar loading mientras valida sistema
   if (validandoSistema) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -340,7 +359,6 @@ const VentasPage = () => {
     );
   }
 
-  // 🔧 Mostrar advertencia si no hay turno o caja
   if (!turnoActivo || !cajaActiva) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -367,7 +385,6 @@ const VentasPage = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header con info de turno/caja */}
       <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
@@ -402,7 +419,6 @@ const VentasPage = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
-          {/* Columna izquierda - Buscador */}
           <div className="lg:col-span-2">
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
@@ -412,7 +428,6 @@ const VentasPage = () => {
               <BuscadorProductos onAgregarProducto={agregarAlCarrito} />
             </div>
 
-            {/* Carrito */}
             {carrito.length > 0 && (
               <div className="mt-6 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">
@@ -432,7 +447,6 @@ const VentasPage = () => {
             )}
           </div>
 
-          {/* Columna derecha - Resumen */}
           <div className="lg:col-span-1">
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 sticky top-24">
               <h2 className="text-lg font-semibold text-gray-900 mb-6">Resumen de Venta</h2>
@@ -490,7 +504,7 @@ const VentasPage = () => {
                 </div>
               </div>
 
-              {/* Formulario Cliente (solo para fiado) */}
+              {/* 🔧 MEJORADO: Formulario Cliente con abono inicial */}
               {mostrarFormCliente && (
                 <div className="mb-6 p-4 bg-orange-50 rounded-lg border border-orange-200">
                   <h3 className="text-sm font-semibold text-orange-900 mb-3">
@@ -519,7 +533,14 @@ const VentasPage = () => {
                               className="w-full px-4 py-2 text-left hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-b-0"
                             >
                               <p className="font-medium text-gray-900">{deudor.nombre}</p>
-                              <p className="text-sm text-gray-600">{deudor.telefono}</p>
+                              <div className="flex justify-between items-center mt-1">
+                                <p className="text-sm text-gray-600">{deudor.telefono}</p>
+                                {deudor.saldoPendiente > 0 && (
+                                  <span className="text-xs font-semibold text-red-600 bg-red-50 px-2 py-1 rounded">
+                                    Debe: ${deudor.saldoPendiente.toLocaleString()}
+                                  </span>
+                                )}
+                              </div>
                             </button>
                           ))}
                         </div>
@@ -532,6 +553,30 @@ const VentasPage = () => {
                       onChange={(e) => setClienteFiado({ ...clienteFiado, telefono: e.target.value })}
                       className="w-full px-4 py-2 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
                     />
+                    
+                    {/* 🔧 NUEVO: Campo de abono inicial */}
+                    <div>
+                      <label className="block text-xs font-medium text-orange-800 mb-1">
+                        Abono Inicial (Opcional)
+                      </label>
+                      <input
+                        type="number"
+                        placeholder="0"
+                        min="0"
+                        max={calcularTotal()}
+                        value={clienteFiado.abonoInicial || ''}
+                        onChange={(e) => {
+                          const valor = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                          setClienteFiado({ ...clienteFiado, abonoInicial: valor });
+                        }}
+                        className="w-full px-4 py-2 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      />
+                      {clienteFiado.abonoInicial > 0 && (
+                        <p className="text-xs text-orange-700 mt-1">
+                          Quedará debiendo: ${(calcularTotal() - (clienteFiado.abonoInicial || 0)).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -563,7 +608,6 @@ const VentasPage = () => {
         </div>
       </div>
 
-      {/* Modal Ticket */}
       {ventaCompletada && (
         <TicketVenta
           venta={ventaCompletada}
