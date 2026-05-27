@@ -55,7 +55,7 @@ const Dashboard = () => {
         },
         deuda: {
           total: stats.deudaTotal || 0,
-          deudores: 0,
+          deudores: stats.deudoresConDeuda || 0,
         },
       });
 

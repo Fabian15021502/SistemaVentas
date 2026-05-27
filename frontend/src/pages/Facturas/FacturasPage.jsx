@@ -65,7 +65,14 @@ const FacturasPage = () => {
   };
 
   const puedeEditarFactura = (factura) => {
-    const fechaVenta = new Date(factura.fecha);
+    // fecha puede ser Timestamp de Firestore {seconds:N}, string ISO, o Date
+    const f = factura.fecha;
+    let fechaVenta;
+    if (f?.seconds)        fechaVenta = new Date(f.seconds * 1000);
+    else if (f?._seconds)  fechaVenta = new Date(f._seconds * 1000);
+    else                   fechaVenta = new Date(f);
+
+    if (isNaN(fechaVenta)) return true; // si no se puede parsear, permitir edición
     const ahora = new Date();
     const horasTranscurridas = (ahora - fechaVenta) / (1000 * 60 * 60);
     return horasTranscurridas <= 24;
@@ -123,7 +130,8 @@ const FacturasPage = () => {
           {facturas.length > 0 ? (
             facturas.map((factura) => {
               const puedeEditar = puedeEditarFactura(factura);
-              const fechaVenta = new Date(factura.fecha);
+              const _f = factura.fecha;
+              const fechaVenta = _f?.seconds ? new Date(_f.seconds*1000) : _f?._seconds ? new Date(_f._seconds*1000) : new Date(_f);
 
               return (
                 <div key={factura.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">

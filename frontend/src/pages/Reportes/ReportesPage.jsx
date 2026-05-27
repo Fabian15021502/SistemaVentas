@@ -52,14 +52,19 @@ const ReportesPage = () => {
             ventasService.obtenerVentas()
           ]);
           
-          // Filtrar ventas por fecha
+          // Filtrar ventas por fecha — soporta Timestamp de Firestore y string ISO
           const ventasFiltradas = ventas.filter(venta => {
-            const fechaVenta = new Date(venta.fecha);
+            const f = venta.fecha;
+            let fechaVenta;
+            if (f?.seconds)       fechaVenta = new Date(f.seconds * 1000);
+            else if (f?._seconds) fechaVenta = new Date(f._seconds * 1000);
+            else                  fechaVenta = new Date(f);
+
             const inicio = new Date(fechaInicio);
             const fin = new Date(fechaFin);
             fin.setHours(23, 59, 59, 999);
             
-            return fechaVenta >= inicio && fechaVenta <= fin;
+            return !isNaN(fechaVenta) && fechaVenta >= inicio && fechaVenta <= fin;
           });
           
           // Calcular estadísticas por producto
@@ -99,12 +104,17 @@ const ReportesPage = () => {
               
               // Filtrar deudas por fecha
               const deudasEnRango = deudas.filter(deuda => {
-                const fechaDeuda = new Date(deuda.fecha);
+                const fd = deuda.fecha;
+                let fechaDeuda;
+                if (fd?.seconds)       fechaDeuda = new Date(fd.seconds * 1000);
+                else if (fd?._seconds) fechaDeuda = new Date(fd._seconds * 1000);
+                else                   fechaDeuda = new Date(fd);
+
                 const inicio = new Date(fechaInicio);
                 const fin = new Date(fechaFin);
                 fin.setHours(23, 59, 59, 999);
                 
-                return fechaDeuda >= inicio && fechaDeuda <= fin;
+                return !isNaN(fechaDeuda) && fechaDeuda >= inicio && fechaDeuda <= fin;
               });
               
               // Calcular totales en el rango

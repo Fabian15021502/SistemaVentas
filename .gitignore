@@ -28,3 +28,7 @@ Thumbs.db
 # Credenciales de Google y Firebase
 backend-api/firebase-service-account.json
 backend-api/google-service-account.json
+*.zip
+*.json
+!firebase.json
+!firestore.indexes.json

@@ -653,15 +653,19 @@ app.post('/api/ventas', async (req, res) => {
 // =====================================================
 app.get('/api/deudores', async (req, res) => {
   try {
-    const snapshot = await db.collection('deudores')
-      .where('activo', '==', true)
-      .orderBy('nombre')
-      .get();
+    // Filtramos activo=true en memoria para evitar índice compuesto (activo+nombre)
+    const snapshot = await db.collection('deudores').get();
 
     const deudores = [];
     snapshot.forEach(doc => {
-      deudores.push({ id: doc.id, ...doc.data() });
+      const data = doc.data();
+      if (data.activo !== false) {          // incluye true y undefined (legacy)
+        deudores.push({ id: doc.id, ...data });
+      }
     });
+
+    // Ordenar por nombre en memoria
+    deudores.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es'));
 
     res.json({ success: true, data: deudores });
   } catch (error) {
@@ -1195,6 +1199,65 @@ app.get('/api/dashboard/stats', async (req, res) => {
       deudaTotal += doc.data().saldo || 0;
     });
 
+    // Ventas últimos 7 días para gráfico de semana
+    const hace7dias = new Date();
+    hace7dias.setDate(hace7dias.getDate() - 7);
+    hace7dias.setHours(0, 0, 0, 0);
+
+    const ventasSemanaSnapshot = await db.collection('ventas')
+      .where('fecha', '>=', hace7dias)
+      .get();
+
+    const ventasPorMetodo = {};
+    const ventasPorCategoria = {};
+    const productoContador = {};
+
+    ventasSemanaSnapshot.forEach(doc => {
+      const v = doc.data();
+      const metodo = (v.metodoPago || 'otro').toLowerCase();
+      ventasPorMetodo[metodo] = (ventasPorMetodo[metodo] || 0) + (v.total || 0);
+    });
+
+    // Top productos: leer items de ventas del mes
+    const itemsPromises = [];
+    ventasMesSnapshot.forEach(doc => {
+      itemsPromises.push(
+        db.collection('ventas').doc(doc.id).collection('items').get()
+      );
+    });
+
+    const itemsResults = await Promise.all(itemsPromises);
+    itemsResults.forEach(itemsSnap => {
+      itemsSnap.forEach(itemDoc => {
+        const item = itemDoc.data();
+        const pid = item.productoId;
+        if (!pid) return;
+        if (!productoContador[pid]) {
+          productoContador[pid] = { productoId: pid, nombre: item.productoNombre || '', cantidad: 0, total: 0 };
+        }
+        productoContador[pid].cantidad += parseInt(item.cantidad) || 0;
+        productoContador[pid].total += parseFloat(item.subtotal) || 0;
+
+        const cat = item.categoriaId || item.categoria || 'Sin categoría';
+        ventasPorCategoria[cat] = (ventasPorCategoria[cat] || 0) + (parseFloat(item.subtotal) || 0);
+      });
+    });
+
+    const productosMasVendidos = Object.values(productoContador)
+      .sort((a, b) => b.cantidad - a.cantidad)
+      .slice(0, 5);
+
+    const ventasPorCategoriaArray = Object.entries(ventasPorCategoria)
+      .map(([categoria, total]) => ({ categoria, total }))
+      .sort((a, b) => b.total - a.total);
+
+    // Deudores únicos con deuda pendiente
+    const deudoresConDeuda = new Set();
+    deudasSnapshot.forEach(doc => {
+      const d = doc.data();
+      if (d.deudorId) deudoresConDeuda.add(d.deudorId);
+    });
+
     res.json({
       success: true,
       data: {
@@ -1202,7 +1265,12 @@ app.get('/api/dashboard/stats', async (req, res) => {
         ventasMes,
         totalDiario,
         totalMensual,
-        deudaTotal
+        deudaTotal,
+        deudoresConDeuda: deudoresConDeuda.size,
+        ventasPorMetodo,
+        ventasPorCategoria: ventasPorCategoriaArray,
+        productosMasVendidos,
+        ultimasVentas: []
       }
     });
   } catch (error) {
@@ -1444,6 +1512,39 @@ app.get('/api/ventas/:id/historial', async (req, res) => {
 // =====================================================
 
 // GET /api/cajas/:id/ventas
+app.get('/api/cajas/cierres', async (req, res) => {
+  try {
+    const { turnoId, empleado } = req.query;
+
+    if (!turnoId) {
+      return res.status(400).json({ success: false, error: 'Se requiere turnoId' });
+    }
+
+    const snapshot = await db.collection('cierresCaja')
+      .where('turnoId', '==', turnoId)
+      .get();
+
+    let cierres = [];
+    snapshot.forEach(doc => cierres.push({ id: doc.id, ...doc.data() }));
+
+    if (empleado) {
+      cierres = cierres.filter(c => c.empleado === empleado);
+    }
+
+    // Ordenar por fecha descendente
+    cierres.sort((a, b) => {
+      const fa = a.fechaCierre?.seconds || a.fechaCierre?._seconds || 0;
+      const fb = b.fechaCierre?.seconds || b.fechaCierre?._seconds || 0;
+      return fb - fa;
+    });
+
+    res.json({ success: true, data: cierres });
+  } catch (error) {
+    console.error('Error en getCierresCaja:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 app.get('/api/cajas/:id/ventas', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1463,27 +1564,6 @@ app.get('/api/cajas/:id/ventas', async (req, res) => {
 });
 
 // GET /api/cajas/cierres?turnoId=xxx
-app.get('/api/cajas/cierres', async (req, res) => {
-  try {
-    const { turnoId, empleado } = req.query;
-
-    if (!turnoId) {
-      return res.status(400).json({ success: false, error: 'Se requiere turnoId' });
-    }
-
-    let query = db.collection('cierresCaja').where('turnoId', '==', turnoId);
-    if (empleado) query = query.where('empleado', '==', empleado);
-
-    const snapshot = await query.get();
-    const cierres = [];
-    snapshot.forEach(doc => cierres.push({ id: doc.id, ...doc.data() }));
-
-    res.json({ success: true, data: cierres });
-  } catch (error) {
-    console.error('Error en getCierresCaja:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
 
 // =====================================================
 // TURNOS - ENDPOINTS FALTANTES
