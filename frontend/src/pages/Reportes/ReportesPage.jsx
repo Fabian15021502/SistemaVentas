@@ -5,6 +5,38 @@ import ventasService from '../../services/ventasService';
 import productosService from '../../services/productosService';
 import deudoresService from '../../services/deudoresService';
 
+// --- Helpers de fecha ---------------------------------------------------
+// La API devuelve los Timestamp de Firestore como {_seconds, _nanoseconds}.
+const aFecha = (f) => {
+  if (!f) return new Date(NaN);
+  if (f.seconds !== undefined) return new Date(f.seconds * 1000);
+  if (f._seconds !== undefined) return new Date(f._seconds * 1000);
+  return new Date(f);
+};
+
+// Fecha local (zona del navegador) en formato YYYY-MM-DD.
+// toISOString() usa UTC y en Colombia (UTC-5) cambia de día a las 7 p. m.
+const fechaLocalISO = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dia = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dia}`;
+};
+
+// Convierte 'YYYY-MM-DD' a Date local. new Date('YYYY-MM-DD') la interpreta en UTC.
+const desdeInputFecha = (str) => {
+  const [y, m, d] = str.split('-').map(Number);
+  return new Date(y, m - 1, d);
+};
+
+// Rango [inicio 00:00:00, fin 23:59:59.999] en hora local.
+const rangoLocal = (fechaInicio, fechaFin) => {
+  const inicio = desdeInputFecha(fechaInicio);
+  const fin = desdeInputFecha(fechaFin);
+  fin.setHours(23, 59, 59, 999);
+  return { inicio, fin };
+};
+
 const ReportesPage = () => {
   const navigate = useNavigate();
   const [reporteActivo, setReporteActivo] = useState('ventas');
@@ -21,8 +53,8 @@ const ReportesPage = () => {
     const haceUnMes = new Date();
     haceUnMes.setMonth(haceUnMes.getMonth() - 1);
     
-    setFechaInicio(haceUnMes.toISOString().split('T')[0]);
-    setFechaFin(hoy.toISOString().split('T')[0]);
+    setFechaInicio(fechaLocalISO(haceUnMes));
+    setFechaFin(fechaLocalISO(hoy));
   }, []);
 
   const generarReporte = async () => {
@@ -34,12 +66,10 @@ const ReportesPage = () => {
           
           // Filtrar por rango de fechas
           const ventasFiltradas = ventas.filter(venta => {
-            const fechaVenta = new Date(venta.fecha);
-            const inicio = new Date(fechaInicio);
-            const fin = new Date(fechaFin);
-            fin.setHours(23, 59, 59, 999);
-            
-            return fechaVenta >= inicio && fechaVenta <= fin;
+            const fechaVenta = aFecha(venta.fecha);
+            const { inicio, fin } = rangoLocal(fechaInicio, fechaFin);
+
+            return !isNaN(fechaVenta) && fechaVenta >= inicio && fechaVenta <= fin;
           });
           
           setDatosVentas(ventasFiltradas);
@@ -54,16 +84,9 @@ const ReportesPage = () => {
           
           // Filtrar ventas por fecha — soporta Timestamp de Firestore y string ISO
           const ventasFiltradas = ventas.filter(venta => {
-            const f = venta.fecha;
-            let fechaVenta;
-            if (f?.seconds)       fechaVenta = new Date(f.seconds * 1000);
-            else if (f?._seconds) fechaVenta = new Date(f._seconds * 1000);
-            else                  fechaVenta = new Date(f);
+            const fechaVenta = aFecha(venta.fecha);
+            const { inicio, fin } = rangoLocal(fechaInicio, fechaFin);
 
-            const inicio = new Date(fechaInicio);
-            const fin = new Date(fechaFin);
-            fin.setHours(23, 59, 59, 999);
-            
             return !isNaN(fechaVenta) && fechaVenta >= inicio && fechaVenta <= fin;
           });
           
@@ -104,16 +127,9 @@ const ReportesPage = () => {
               
               // Filtrar deudas por fecha
               const deudasEnRango = deudas.filter(deuda => {
-                const fd = deuda.fecha;
-                let fechaDeuda;
-                if (fd?.seconds)       fechaDeuda = new Date(fd.seconds * 1000);
-                else if (fd?._seconds) fechaDeuda = new Date(fd._seconds * 1000);
-                else                   fechaDeuda = new Date(fd);
+                const fechaDeuda = aFecha(deuda.fecha);
+                const { inicio, fin } = rangoLocal(fechaInicio, fechaFin);
 
-                const inicio = new Date(fechaInicio);
-                const fin = new Date(fechaFin);
-                fin.setHours(23, 59, 59, 999);
-                
                 return !isNaN(fechaDeuda) && fechaDeuda >= inicio && fechaDeuda <= fin;
               });
               
@@ -158,7 +174,7 @@ const saldoPendienteRango = deudasEnRango.reduce((sum, d) => sum + (parseFloat(d
         nombreArchivo = `reporte_ventas_${fechaInicio}_${fechaFin}.csv`;
         csvContent = 'ID,Fecha,Hora,Cliente,Total,Método Pago,Empleado\n';
         datosVentas.forEach(venta => {
-          const fecha = new Date(venta.fecha);
+          const fecha = aFecha(venta.fecha);
           const fechaStr = fecha.toLocaleDateString('es-CO');
           const horaStr = fecha.toLocaleTimeString('es-CO');
           csvContent += `${venta.id},${fechaStr},${horaStr},"${venta.clienteNombre || 'Cliente General'}",${venta.total},${venta.metodoPago},${venta.empleadoId}\n`;
@@ -346,7 +362,7 @@ const saldoPendienteRango = deudasEnRango.reduce((sum, d) => sum + (parseFloat(d
                       <tr key={venta.id}>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{venta.id}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {new Date(venta.fecha).toLocaleDateString('es-CO')}
+                          {aFecha(venta.fecha).toLocaleDateString('es-CO')}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           {venta.clienteNombre || 'Cliente General'}
@@ -479,9 +495,9 @@ const saldoPendienteRango = deudasEnRango.reduce((sum, d) => sum + (parseFloat(d
             <p className="text-lg font-bold text-purple-700">
               {fechaInicio && fechaFin ? (
                 <>
-                  {new Date(fechaInicio).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
+                  {desdeInputFecha(fechaInicio).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
                   {' - '}
-                  {new Date(fechaFin).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  {desdeInputFecha(fechaFin).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
                 </>
               ) : (
                 'Seleccionar fechas'
