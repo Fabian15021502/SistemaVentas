@@ -32,3 +32,4 @@ backend-api/google-service-account.json
 *.json
 !firebase.json
 !firestore.indexes.json
+!vercel.json

@@ -12,7 +12,7 @@ import {
   TrendingUp,
   X
 } from 'lucide-react';
-import turnoService from '../../services/TurnoService';
+import turnoService from '../../services/turnoService';
 
 const TurnoCajaPage = () => {
   const { user } = useAuth();

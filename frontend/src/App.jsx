@@ -16,7 +16,7 @@ import DeudoresPage from "./pages/Deudores/DeudoresPage";
 import ReportesPage from "./pages/Reportes/ReportesPage";
 import InventarioPage from "./pages/Inventario/InventarioPage";
 import TurnoCajaPage from "./pages/TurnoCaja/TurnoCajaPage";
-import FacturasPage from "./pages/Facturas/facturasPage"; // ✅ Importar la nueva página de Facturas
+import FacturasPage from "./pages/Facturas/FacturasPage"; // ✅ Importar la nueva página de Facturas
 
 function App() {
   return (
